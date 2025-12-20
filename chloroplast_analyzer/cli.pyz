@@ -1,0 +1,392 @@
+#!/usr/bin/env python3
+"""
+Command-line interface for CGAS - Chloroplast Genome Analysis Suite
+"""
+
+import os
+import sys
+import argparse
+from pathlib import Path
+import importlib.util
+
+
+def load_module_from_package(module_name):
+    """Load a module from the chloroplast_analyzer package."""
+    try:
+        return importlib.import_module(f'chloroplast_analyzer.{module_name}')
+    except ImportError:
+        print(f"Error: Could not import {module_name}")
+        return None
+
+
+def get_files_info(directory='.'):
+    """Get information about GenBank and FASTA files in directory."""
+    work_dir = Path(directory)
+    gb_files = [f for f in os.listdir(work_dir) if f.endswith(('.gb', '.gbk', '.genbank', '.gbff'))]
+    fasta_files = [f for f in os.listdir(work_dir) if f.endswith(('.fasta', '.fa', '.fna', '.fas'))]
+    return gb_files, fasta_files
+
+
+def print_header():
+    """Print the application header."""
+    print("=" * 80)
+    print("CGAS - CHLOROPLAST GENOME ANALYSIS SUITE v1.0.0")
+    print("=" * 80)
+    print()
+
+
+def main():
+    """Main entry point for the unified analyzer."""
+    parser = argparse.ArgumentParser(
+        description='CGAS - Chloroplast Genome Analysis Suite v1.0.0',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+CGAS - Chloroplast Genome Analysis Suite
+
+Usage Examples:
+  cgas                           # Run all 9 modules
+  cgas --module 1                # Run only module 1
+  cgas --modules 1,4,8           # Run modules 1, 4, and 8
+  cgas --input ./data            # Analyze files in ./data directory
+  cgas --input ~/data -o ~/results   # Specify input and output directories
+  cgas --list                    # List all available modules with descriptions
+  
+Individual Module Commands:
+  cgas-count       # Module 1: Gene Count and Summary
+  cgas-table       # Module 2: Gene Table Generation (Word document)
+  cgas-compare     # Module 3: Comparative Genome Analysis
+  cgas-codon       # Module 4: Codon Usage Analysis (RSCU)
+  cgas-aa          # Module 5: Amino Acid Composition Analysis
+  cgas-snp         # Module 6: SNP/Substitution Analysis (requires FASTA)
+  cgas-intron      # Module 7: Intron Extraction and Analysis
+  cgas-ssr         # Module 8: SSR (Microsatellite) Analysis
+  cgas-diversity   # Module 9: Nucleotide Diversity Analysis (requires MAFFT, 2+ files)
+
+Input Requirements:
+  - GenBank files (.gb, .gbk, .genbank, .gbff) for modules 1-5, 7-9
+  - FASTA files (.fasta, .fa, .fna, .fas) for module 6
+  - Module 9 requires MAFFT installed and 2+ GenBank files
+
+Output:
+  - Excel files (.xlsx) with timestamped names
+  - Word documents (.docx) for gene tables
+  - Organized folders for SSR and diversity analyses
+
+For more information and documentation, visit the GitHub repository.
+        """
+    )
+    
+    parser.add_argument(
+        '-m', '--module',
+        type=int,
+        help='Run a specific module (1-9)'
+    )
+    
+    parser.add_argument(
+        '--modules',
+        type=str,
+        help='Run specific modules (comma-separated, e.g., 1,4,8)'
+    )
+    
+    parser.add_argument(
+        '-i', '--input',
+        type=str,
+        default='.',
+        help='Input directory containing GenBank/FASTA files (default: current directory)'
+    )
+    
+    parser.add_argument(
+        '-o', '--output',
+        type=str,
+        default=None,
+        help='Output directory for results (default: input directory)'
+    )
+    
+    parser.add_argument(
+        '--list',
+        action='store_true',
+        help='List all available modules and exit'
+    )
+    
+    parser.add_argument(
+        '--version',
+        action='version',
+        version='CGAS v2.1.0'
+    )
+    
+    parser.add_argument(
+        '-v', '--verbose',
+        action='store_true',
+        help='Verbose output'
+    )
+    
+    args = parser.parse_args()
+    
+    # List modules and exit
+    if args.list:
+        print_header()
+        print("Available Modules:")
+        print()
+        modules_info = [
+            (1, "Gene Count and Summary", "GenBank", "1+", "Counts genes, tRNAs, rRNAs, and genome statistics"),
+            (2, "Gene Table Generation", "GenBank", "1+", "Creates formatted Word documents with gene information"),
+            (3, "Comparative Genome Analysis", "GenBank", "1+", "Compares genome structure and GC content across species"),
+            (4, "Codon Usage Analysis (RSCU)", "GenBank", "1+", "Calculates Relative Synonymous Codon Usage"),
+            (5, "Amino Acid Composition", "GenBank", "1+", "Analyzes amino acid frequencies in protein-coding genes"),
+            (6, "SNP/Substitution Analysis", "FASTA", "1+", "Identifies SNPs and substitutions between sequences"),
+            (7, "Intron Extraction", "GenBank", "1+", "Extracts and analyzes intron sequences from genes"),
+            (8, "SSR Analysis", "GenBank", "1+", "Identifies Simple Sequence Repeats (microsatellites)"),
+            (9, "Nucleotide Diversity", "GenBank", "2+ (MAFFT)", "Calculates Pi (π) nucleotide diversity"),
+        ]
+        for num, name, input_type, min_files, description in modules_info:
+            print(f"  {num}. {name}")
+            print(f"     Input: {input_type} | Minimum files: {min_files}")
+            print(f"     {description}")
+            print()
+        print("Run 'cgas --help' for usage examples and options.")
+        print()
+        return
+    
+    # Change to input directory
+    if args.input != '.':
+        if not Path(args.input).exists():
+            print(f"Error: Input directory '{args.input}' does not exist")
+            sys.exit(1)
+        os.chdir(args.input)
+    
+    print_header()
+    print(f"Working directory: {Path.cwd()}")
+    
+    gb_files, fasta_files = get_files_info('.')
+    print(f"GenBank files found: {len(gb_files)}")
+    print(f"FASTA files found: {len(fasta_files)}")
+    print()
+    
+    # Import the main analyzer
+    try:
+        from chloroplast_analyzer import unified_analyzer
+    except ImportError:
+        print("Error: Could not import chloroplast_analyzer package")
+        print("Make sure the package is properly installed:")
+        print("  pip install -e .")
+        sys.exit(1)
+    
+    # Handle module selection
+    if args.module:
+        # Run single module
+        config = unified_analyzer.MODULES.get(args.module)
+        if not config:
+            print(f"Error: Invalid module number: {args.module}")
+            print("Use 'cgas --list' to see available modules")
+            sys.exit(1)
+        
+        result = unified_analyzer.run_module(args.module, config)
+        sys.exit(0 if result == 'success' else 1)
+    
+    elif args.modules:
+        # Run multiple specific modules
+        try:
+            module_nums = [int(m.strip()) for m in args.modules.split(',')]
+        except ValueError:
+            print("Error: Invalid module numbers. Use comma-separated integers (e.g., 1,4,8)")
+            sys.exit(1)
+        
+        results = {'success': 0, 'failed': 0, 'skipped': 0}
+        for module_num in module_nums:
+            config = unified_analyzer.MODULES.get(module_num)
+            if not config:
+                print(f"Warning: Invalid module number {module_num}, skipping")
+                continue
+            
+            result = unified_analyzer.run_module(module_num, config)
+            if result in results:
+                results[result] += 1
+        
+        print("\n" + "=" * 80)
+        print("ANALYSIS COMPLETE")
+        print("=" * 80)
+        print(f"✓ Completed: {results['success']}")
+        print(f"⚠ Skipped: {results['skipped']}")
+        print(f"✗ Failed: {results['failed']}")
+        print("=" * 80)
+        
+        sys.exit(0 if results['failed'] == 0 else 1)
+    
+    else:
+        # Run all modules
+        unified_analyzer.run_all_modules()
+
+
+def module1():
+    """Run Module 1: Gene Count and Summary."""
+    print_header()
+    print("Running Module 1: Gene Count and Summary")
+    print("-" * 80)
+    try:
+        from chloroplast_analyzer import module1_gene_count
+        module1_gene_count.main()
+    except ImportError as e:
+        print(f"Error: Could not import module1_gene_count: {e}")
+        sys.exit(1)
+
+
+def module2():
+    """Run Module 2: Gene Table Generation."""
+    print_header()
+    print("Running Module 2: Gene Table Generation")
+    print("-" * 80)
+    try:
+        from chloroplast_analyzer import module2_gene_table
+        module2_gene_table.main()
+    except ImportError as e:
+        print(f"Error: Could not import module2_gene_table: {e}")
+        sys.exit(1)
+
+
+def module3():
+    """Run Module 3: Comparative Genome Analysis."""
+    print_header()
+    print("Running Module 3: Comparative Genome Analysis")
+    print("-" * 80)
+    try:
+        from chloroplast_analyzer import module3_comparative_analysis
+        module3_comparative_analysis.main()
+    except ImportError as e:
+        print(f"Error: Could not import module3_comparative_analysis: {e}")
+        sys.exit(1)
+
+
+def module4():
+    """Run Module 4: Codon Usage Analysis."""
+    print_header()
+    print("Running Module 4: Codon Usage Analysis (RSCU)")
+    print("-" * 80)
+    try:
+        from chloroplast_analyzer import module4_codon_usage
+        module4_codon_usage.main()
+    except ImportError as e:
+        print(f"Error: Could not import module4_codon_usage: {e}")
+        sys.exit(1)
+
+
+def module5():
+    """Run Module 5: Amino Acid Composition."""
+    print_header()
+    print("Running Module 5: Amino Acid Composition")
+    print("-" * 80)
+    try:
+        from chloroplast_analyzer import module5_amino_acid
+        module5_amino_acid.main()
+    except ImportError as e:
+        print(f"Error: Could not import module5_amino_acid: {e}")
+        sys.exit(1)
+
+
+def module6():
+    """Run Module 6: SNP/Substitution Analysis."""
+    print_header()
+    print("Running Module 6: SNP/Substitution Analysis")
+    print("-" * 80)
+    try:
+        from chloroplast_analyzer import module6_snp_analysis
+        module6_snp_analysis.main()
+    except ImportError as e:
+        print(f"Error: Could not import module6_snp_analysis: {e}")
+        sys.exit(1)
+
+
+def module7():
+    """Run Module 7: Intron Extraction."""
+    print_header()
+    print("Running Module 7: Intron Extraction")
+    print("-" * 80)
+    try:
+        from chloroplast_analyzer import module7_intron_extraction
+        module7_intron_extraction.main()
+    except ImportError as e:
+        print(f"Error: Could not import module7_intron_extraction: {e}")
+        sys.exit(1)
+
+
+def module8():
+    """Run Module 8: SSR Analysis."""
+    parser = argparse.ArgumentParser(description='CGAS Module 8: SSR Analysis')
+    parser.add_argument('-i', '--input', default='.', help='Input directory with GenBank files')
+    parser.add_argument('-o', '--output', default=None, help='Output directory')
+    parser.add_argument('--mono', type=int, default=10, help='Mononucleotide threshold (default: 10)')
+    parser.add_argument('--di', type=int, default=5, help='Dinucleotide threshold (default: 5)')
+    parser.add_argument('--tri', type=int, default=4, help='Trinucleotide threshold (default: 4)')
+    parser.add_argument('--tetra', type=int, default=3, help='Tetranucleotide threshold (default: 3)')
+    parser.add_argument('--penta', type=int, default=3, help='Pentanucleotide threshold (default: 3)')
+    parser.add_argument('--hexa', type=int, default=3, help='Hexanucleotide threshold (default: 3)')
+    
+    args = parser.parse_args()
+    
+    print_header()
+    print("Running Module 8: SSR Analysis")
+    print("-" * 80)
+    
+    thresholds = {
+        1: args.mono,
+        2: args.di,
+        3: args.tri,
+        4: args.tetra,
+        5: args.penta,
+        6: args.hexa
+    }
+    
+    try:
+        from chloroplast_analyzer import module8_ssr_analysis
+        module8_ssr_analysis.run_module8(
+            gb_folder=args.input,
+            output_folder=args.output,
+            thresholds=thresholds
+        )
+    except ImportError as e:
+        print(f"Error: Could not import module8_ssr_analysis: {e}")
+        sys.exit(1)
+
+
+def module9():
+    """Run Module 9: Nucleotide Diversity Analysis."""
+    print_header()
+    print("Running Module 9: Nucleotide Diversity Analysis")
+    print("-" * 80)
+    
+    # Check for MAFFT
+    import subprocess
+    try:
+        subprocess.run(['mafft', '--version'], 
+                      stdout=subprocess.DEVNULL, 
+                      stderr=subprocess.DEVNULL, 
+                      check=True)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        print("Error: MAFFT is required for Module 9 but was not found.")
+        print("Please install MAFFT:")
+        print("  Ubuntu/Debian: sudo apt-get install mafft")
+        print("  macOS: brew install mafft")
+        sys.exit(1)
+    
+    # Get GenBank files
+    gb_files, _ = get_files_info('.')
+    if len(gb_files) < 2:
+        print("Error: Module 9 requires at least 2 GenBank files")
+        print(f"Found: {len(gb_files)} GenBank file(s)")
+        sys.exit(1)
+    
+    # Set sys.argv for the module
+    old_argv = sys.argv
+    sys.argv = ["module9"] + gb_files
+    
+    try:
+        from chloroplast_analyzer import module9_diversity_analysis
+        module9_diversity_analysis.main()
+    except ImportError as e:
+        print(f"Error: Could not import module9_diversity_analysis: {e}")
+        sys.exit(1)
+    finally:
+        sys.argv = old_argv
+
+
+if __name__ == '__main__':
+    main()

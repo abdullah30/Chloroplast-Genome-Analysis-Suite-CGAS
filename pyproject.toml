@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chloroplast-analyzer"
+version = "1.0.0"
+description = "Chloroplast Genome Analysis Suite (CGAS) - A comprehensive toolkit for analyzing chloroplast genomes"
+readme = "README.md"
+requires-python = ">=3.7"
+license = {text = "MIT"}
+authors = [
+    {name = "Abdullah", email = "your.email@example.com"}
+]
+keywords = ["chloroplast", "genome", "bioinformatics", "genomics", "analysis", "plastid", "CGAS"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+dependencies = [
+    "biopython>=1.79",
+    "pandas>=1.3.0",
+    "openpyxl>=3.0.9",
+    "numpy>=1.21.0",
+    "python-docx>=0.8.11",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0",
+    "pytest-cov>=2.12",
+    "black>=21.0",
+    "flake8>=3.9",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/chloroplast-analyzer"
+Documentation = "https://github.com/yourusername/chloroplast-analyzer/blob/main/README.md"
+Repository = "https://github.com/yourusername/chloroplast-analyzer"
+"Bug Tracker" = "https://github.com/yourusername/chloroplast-analyzer/issues"
+
+[project.scripts]
+cgas = "chloroplast_analyzer.cli:main"
+cgas-analyze = "chloroplast_analyzer.cli:main"
+cgas-count = "chloroplast_analyzer.cli:module1"
+cgas-table = "chloroplast_analyzer.cli:module2"
+cgas-compare = "chloroplast_analyzer.cli:module3"
+cgas-codon = "chloroplast_analyzer.cli:module4"
+cgas-aa = "chloroplast_analyzer.cli:module5"
+cgas-snp = "chloroplast_analyzer.cli:module6"
+cgas-intron = "chloroplast_analyzer.cli:module7"
+cgas-ssr = "chloroplast_analyzer.cli:module8"
+cgas-diversity = "chloroplast_analyzer.cli:module9"
+
+[tool.setuptools]
+packages = ["chloroplast_analyzer"]
+
+[tool.setuptools.package-data]
+chloroplast_analyzer = ["data/*"]

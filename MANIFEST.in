@@ -1,0 +1,6 @@
+include README.md
+include LICENSE
+include requirements.txt
+include pyproject.toml
+recursive-include chloroplast_analyzer *.py
+recursive-include tests *.py

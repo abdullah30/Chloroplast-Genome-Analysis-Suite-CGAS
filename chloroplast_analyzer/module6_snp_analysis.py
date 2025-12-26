@@ -11,20 +11,21 @@ This script performs comprehensive nucleotide substitution analysis on FASTA ali
 5. Generating individual Excel reports for each alignment
 6. Creating a merged comparative analysis across all alignments
 
-Author: Bioinformatics Analysis Tool
+Author: Abdullah
 Version: 1.0
-Date: 2025
+Date: December 2025
 
 Dependencies:
     - openpyxl (for Excel file handling)
 
 Usage:
     Place FASTA alignment files (.fasta, .fa, .fna) in the working directory and run:
-    python substitution_analysis.py
+    python module6_snp_analysis.py
 
 Output:
-    - Individual substitution files: [alignment_name]_Substitutions.xlsx
-    - Merged analysis: Merged_Substitution_Analysis.xlsx
+    Module6_SNP_Analysis/
+        - Individual substitution files: [alignment_name]_Substitutions.xlsx
+        - Merged analysis: Merged_Substitution_Analysis_YYYYMMDD_HHMMSS.xlsx
 
 Notes:
     - FASTA files must contain exactly 2 sequences (reference and query)
@@ -36,6 +37,7 @@ import os
 import sys
 from pathlib import Path
 from typing import Dict, List, Tuple
+from datetime import datetime
 
 try:
     import openpyxl
@@ -45,6 +47,13 @@ except ImportError as e:
     print("Please install required packages using:")
     print("pip install openpyxl")
     sys.exit(1)
+
+
+# ============================================================================
+# CONSTANTS
+# ============================================================================
+
+OUTPUT_FOLDER = "Module6_SNP_Analysis"
 
 
 # ============================================================================
@@ -64,6 +73,75 @@ TRANSITIONS = ['A_to_G', 'G_to_A', 'C_to_T', 'T_to_C']
 # Transversion substitutions (purine-pyrimidine or pyrimidine-purine)
 TRANSVERSIONS = ['T_to_G', 'G_to_T', 'A_to_C', 'C_to_A', 
                  'G_to_C', 'C_to_G', 'A_to_T', 'T_to_A']
+
+
+def format_substitution_name(sub_type: str) -> str:
+    """
+    Convert substitution type from 'A_to_G' format to 'A→G' format.
+    
+    Parameters:
+    -----------
+    sub_type : str
+        Substitution type in format 'BASE_to_BASE'
+        
+    Returns:
+    --------
+    str
+        Formatted substitution name with arrow (e.g., 'A→G')
+    """
+    if '_to_' in sub_type:
+        from_base, to_base = sub_type.split('_to_')
+        return f"{from_base}→{to_base}"
+    return sub_type
+
+
+def extract_species_name(sequence_name: str) -> str:
+    """
+    Extract binomial species name (genus + species epithet) from sequence header.
+    
+    Parameters:
+    -----------
+    sequence_name : str
+        Full sequence header from FASTA file
+        
+    Returns:
+    --------
+    str
+        Formatted binomial name (e.g., "Hibiscus hamabo")
+    """
+    # Split by common delimiters and get first parts
+    parts = sequence_name.replace('_', ' ').split()
+    
+    # Take first two words (genus + species)
+    if len(parts) >= 2:
+        genus = parts[0].capitalize()
+        species = parts[1].lower()
+        return f"{genus} {species}"
+    elif len(parts) == 1:
+        return parts[0].capitalize()
+    else:
+        return sequence_name
+
+
+def format_species_comparison(seq_name1: str, seq_name2: str) -> str:
+    """
+    Format two species names as a pairwise comparison.
+    
+    Parameters:
+    -----------
+    seq_name1 : str
+        First sequence header
+    seq_name2 : str
+        Second sequence header
+        
+    Returns:
+    --------
+    str
+        Formatted comparison (e.g., "Hibiscus hamabo × Hibiscus moscheutos")
+    """
+    species1 = extract_species_name(seq_name1)
+    species2 = extract_species_name(seq_name2)
+    return f"{species1} × {species2}"
 
 
 # ============================================================================
@@ -331,7 +409,7 @@ def create_substitution_excel(analysis_results: Dict, sequence_names: List[str],
 # FILE PROCESSING
 # ============================================================================
 
-def process_single_fasta_file(fasta_file: str) -> Tuple[str, Dict]:
+def process_single_fasta_file(fasta_file: str, output_folder: str) -> Tuple[str, Dict, List[str]]:
     """
     Process a single FASTA file and analyze substitutions.
     
@@ -339,13 +417,15 @@ def process_single_fasta_file(fasta_file: str) -> Tuple[str, Dict]:
     -----------
     fasta_file : str
         Path to the FASTA file
+    output_folder : str
+        Directory to save output files
         
     Returns:
     --------
-    Tuple[str, Dict]
-        Tuple of (output filename, analysis results)
+    Tuple[str, Dict, List[str]]
+        Tuple of (output filename, analysis results, sequence names)
     """
-    print(f"\nProcessing: {fasta_file}")
+    print(f"\nProcessing: {os.path.basename(fasta_file)}")
     
     try:
         # Load sequences
@@ -365,18 +445,18 @@ def process_single_fasta_file(fasta_file: str) -> Tuple[str, Dict]:
         
         # Generate output filename
         base_name = Path(fasta_file).stem
-        output_file = f"{base_name}_Substitutions.xlsx"
+        output_file = os.path.join(output_folder, f"{base_name}_Substitutions.xlsx")
         
         # Create Excel file
         create_substitution_excel(results, sequence_names, output_file, len(sequences[0]))
         
-        print(f"  ✓ Saved: {output_file}")
+        print(f"  ✓ Saved: {os.path.basename(output_file)}")
         
-        return output_file, results
+        return output_file, results, sequence_names
         
     except Exception as e:
         print(f"  ❌ ERROR: {e}")
-        return None, None
+        return None, None, None
 
 
 def find_fasta_files(directory: str = None) -> List[str]:
@@ -412,16 +492,18 @@ def find_fasta_files(directory: str = None) -> List[str]:
 # MERGE RESULTS
 # ============================================================================
 
-def merge_substitution_files(sub_files: List[str], output_file: str = 'Merged_Substitution_Analysis.xlsx'):
+def merge_substitution_files(sub_files: List[str], species_comparisons: List[str], output_file: str):
     """
-    Merge individual substitution analysis files into a single comparative analysis file.
+    Merge individual substitution analysis files into a publication-ready comparative analysis file.
     
     Parameters:
     -----------
     sub_files : List[str]
         List of substitution Excel file paths to merge
+    species_comparisons : List[str]
+        List of species comparison strings (e.g., "Hibiscus hamabo × Hibiscus moscheutos")
     output_file : str
-        Name of the output merged file
+        Path for the output merged file
     """
     print(f"\n{'='*70}")
     print("MERGING SUBSTITUTION ANALYSIS FILES")
@@ -435,15 +517,15 @@ def merge_substitution_files(sub_files: List[str], output_file: str = 'Merged_Su
     all_data = {}
     file_names = []
     
-    for filename in sub_files:
-        print(f"  - Adding: {filename}")
+    for idx, filename in enumerate(sub_files):
+        print(f"  - Adding: {os.path.basename(filename)}")
         
         try:
             workbook = openpyxl.load_workbook(filename)
             sheet = workbook['Substitution_Details']
             
-            # Get file identifier
-            file_id = Path(filename).stem.replace('_Substitutions', '')
+            # Use species comparison as identifier
+            file_id = species_comparisons[idx] if idx < len(species_comparisons) else Path(filename).stem.replace('_Substitutions', '')
             file_names.append(file_id)
             
             # Extract substitution counts
@@ -471,53 +553,156 @@ def merge_substitution_files(sub_files: List[str], output_file: str = 'Merged_Su
         print("  ERROR: No data to merge.")
         return
     
-    # Create merged workbook
+    # Create merged workbook with publication-quality formatting
     merged_wb = openpyxl.Workbook()
     merged_sheet = merged_wb.active
-    merged_sheet.title = 'Merged_Substitutions'
+    merged_sheet.title = 'Substitution Summary'
     
-    # Build header row
-    header = ['Substitution_Type'] + file_names
+    # Define styles
+    header_fill = PatternFill(start_color='366092', end_color='366092', fill_type='solid')
+    header_font = Font(bold=True, color='FFFFFF', size=11)
+    header_alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    
+    category_fill = PatternFill(start_color='D9E1F2', end_color='D9E1F2', fill_type='solid')
+    category_font = Font(bold=True, size=10)
+    
+    data_alignment = Alignment(horizontal='center', vertical='center')
+    label_alignment = Alignment(horizontal='left', vertical='center')
+    
+    thin_border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
+    
+    # Build header row with complete substitution names
+    header = ['Substitution Type'] + file_names
     merged_sheet.append(header)
     
-    # Add substitution data
-    for sub_type in SUBSTITUTION_TYPES:
-        row_data = [sub_type]
+    # Format header row
+    for col_idx, cell in enumerate(merged_sheet[1], 1):
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = header_alignment
+        cell.border = thin_border
+        
+        # Italicize species names (all columns except first)
+        if col_idx > 1:
+            cell.font = Font(bold=True, color='FFFFFF', size=11, italic=True)
+    
+    row_num = 2
+    
+    # Add Transitions section
+    merged_sheet.cell(row=row_num, column=1, value="Transitions")
+    merged_sheet.cell(row=row_num, column=1).fill = category_fill
+    merged_sheet.cell(row=row_num, column=1).font = category_font
+    merged_sheet.cell(row=row_num, column=1).alignment = label_alignment
+    merged_sheet.cell(row=row_num, column=1).border = thin_border
+    row_num += 1
+    
+    for sub_type in TRANSITIONS:
+        formatted_name = format_substitution_name(sub_type)
+        row_data = [formatted_name]
         for file_id in file_names:
             row_data.append(all_data[file_id].get(sub_type, 0))
         merged_sheet.append(row_data)
+        
+        # Format this row
+        for col_idx, cell in enumerate(merged_sheet[row_num], 1):
+            if col_idx == 1:
+                cell.alignment = label_alignment
+                cell.font = Font(size=10)
+            else:
+                cell.alignment = data_alignment
+            cell.border = thin_border
+        row_num += 1
     
     # Add spacing
-    merged_sheet.append([])
+    row_num += 1
     
-    # Add summary statistics
+    # Add Transversions section
+    merged_sheet.cell(row=row_num, column=1, value="Transversions")
+    merged_sheet.cell(row=row_num, column=1).fill = category_fill
+    merged_sheet.cell(row=row_num, column=1).font = category_font
+    merged_sheet.cell(row=row_num, column=1).alignment = label_alignment
+    merged_sheet.cell(row=row_num, column=1).border = thin_border
+    row_num += 1
+    
+    for sub_type in TRANSVERSIONS:
+        formatted_name = format_substitution_name(sub_type)
+        row_data = [formatted_name]
+        for file_id in file_names:
+            row_data.append(all_data[file_id].get(sub_type, 0))
+        merged_sheet.append(row_data)
+        
+        # Format this row
+        for col_idx, cell in enumerate(merged_sheet[row_num], 1):
+            if col_idx == 1:
+                cell.alignment = label_alignment
+                cell.font = Font(size=10)
+            else:
+                cell.alignment = data_alignment
+            cell.border = thin_border
+        row_num += 1
+    
+    # Add spacing
+    row_num += 1
+    
+    # Add Summary Statistics section
+    merged_sheet.cell(row=row_num, column=1, value="Summary Statistics")
+    merged_sheet.cell(row=row_num, column=1).fill = category_fill
+    merged_sheet.cell(row=row_num, column=1).font = category_font
+    merged_sheet.cell(row=row_num, column=1).alignment = label_alignment
+    merged_sheet.cell(row=row_num, column=1).border = thin_border
+    row_num += 1
+    
     for category in ['Transitions (Ts)', 'Transversions (Tv)', 'Ts/Tv Ratio']:
         row_data = [category]
         for file_id in file_names:
-            row_data.append(all_data[file_id].get(category, 0))
+            value = all_data[file_id].get(category, 0)
+            # Format Ts/Tv ratio to 4 decimal places
+            if category == 'Ts/Tv Ratio' and isinstance(value, (int, float)):
+                row_data.append(f"{value:.4f}" if value != float('inf') else "∞")
+            else:
+                row_data.append(value)
         merged_sheet.append(row_data)
-    
-    # Format the merged sheet
-    header_fill = PatternFill(start_color='366092', end_color='366092', fill_type='solid')
-    
-    for cell in merged_sheet[1]:
-        cell.fill = header_fill
-        cell.font = Font(bold=True, color='FFFFFF', size=11)
-        cell.alignment = Alignment(horizontal='center', vertical='center')
-    
-    # Format data cells
-    for row in merged_sheet.iter_rows(min_row=2, max_row=merged_sheet.max_row):
-        row[0].font = Font(bold=True)
-        row[0].alignment = Alignment(horizontal='left')
         
-        for cell in row[1:]:
-            cell.alignment = Alignment(horizontal='center')
+        # Format this row
+        for col_idx, cell in enumerate(merged_sheet[row_num], 1):
+            if col_idx == 1:
+                cell.alignment = label_alignment
+                cell.font = Font(bold=True, size=10)
+            else:
+                cell.alignment = data_alignment
+                cell.font = Font(size=10)
+            cell.border = thin_border
+        row_num += 1
+    
+    # Add abbreviation footnotes
+    row_num += 2
+    merged_sheet.cell(row=row_num, column=1, value="Abbreviations:")
+    merged_sheet.cell(row=row_num, column=1).font = Font(bold=True, size=10)
+    row_num += 1
+    
+    footnotes = [
+        "Ts: Transitions (purine ↔ purine or pyrimidine ↔ pyrimidine)",
+        "Tv: Transversions (purine ↔ pyrimidine)",
+        "→: Substitution direction (from → to)"
+    ]
+    
+    for footnote in footnotes:
+        merged_sheet.cell(row=row_num, column=1, value=footnote)
+        merged_sheet.cell(row=row_num, column=1).font = Font(size=9)
+        merged_sheet.cell(row=row_num, column=1).alignment = Alignment(horizontal='left')
+        row_num += 1
     
     # Adjust column widths
-    merged_sheet.column_dimensions['A'].width = 20
+    merged_sheet.column_dimensions['A'].width = 25
     for col_idx in range(2, len(file_names) + 2):
-        col_letter = merged_sheet.cell(row=1, column=col_idx).column_letter
-        merged_sheet.column_dimensions[col_letter].width = 15
+        col_letter = openpyxl.utils.get_column_letter(col_idx)
+        # Make columns wider for species comparison names
+        merged_sheet.column_dimensions[col_letter].width = 30
     
     # Freeze panes
     merged_sheet.freeze_panes = 'B2'
@@ -525,9 +710,8 @@ def merge_substitution_files(sub_files: List[str], output_file: str = 'Merged_Su
     # Save merged file
     merged_wb.save(output_file)
     
-    print(f"\n  ✓ Merged analysis saved: {output_file}")
+    print(f"\n  ✓ Merged analysis saved: {os.path.basename(output_file)}")
     print(f"  - Total alignments compared: {len(file_names)}")
-
 
 # ============================================================================
 # MAIN PIPELINE
@@ -538,17 +722,22 @@ def main():
     Main pipeline execution function.
     
     Workflow:
-    1. Find all FASTA files in working directory
-    2. Process each file to analyze substitutions
-    3. Merge all results into comparative analysis
+    1. Create output folder
+    2. Find all FASTA files in working directory
+    3. Process each file to analyze substitutions
+    4. Merge all results into comparative analysis
     """
     print(f"\n{'='*70}")
-    print("NUCLEOTIDE SUBSTITUTION ANALYSIS PIPELINE")
+    print("MODULE 6: NUCLEOTIDE SUBSTITUTION ANALYSIS")
     print(f"{'='*70}")
     
     # Get working directory
     working_dir = os.getcwd()
     print(f"\nWorking directory: {working_dir}")
+    
+    # Create output folder
+    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+    print(f"Output folder: {OUTPUT_FOLDER}/")
     
     # Find FASTA files
     fasta_files = find_fasta_files(working_dir)
@@ -568,18 +757,28 @@ def main():
     print(f"{'='*70}")
     
     sub_files = []
+    species_comparisons = []
+    
     for fasta_file in fasta_files:
         try:
-            output_file, _ = process_single_fasta_file(fasta_file)
+            output_file, results, sequence_names = process_single_fasta_file(fasta_file, OUTPUT_FOLDER)
             if output_file:
                 sub_files.append(output_file)
+                # Create species comparison string
+                if sequence_names:
+                    comparison = format_species_comparison(sequence_names[0], sequence_names[1])
+                    species_comparisons.append(comparison)
+                else:
+                    # Fallback to filename if sequence names not available
+                    species_comparisons.append(Path(fasta_file).stem)
         except Exception as e:
-            print(f"  ❌ ERROR processing {fasta_file}: {e}")
+            print(f"  ❌ ERROR processing {os.path.basename(fasta_file)}: {e}")
             continue
     
     # Merge results
     if sub_files:
-        merge_substitution_files(sub_files)
+        merged_file = os.path.join(OUTPUT_FOLDER, "Complete_Substitution_Analysis.xlsx")
+        merge_substitution_files(sub_files, species_comparisons, merged_file)
     
     # Summary
     print(f"\n{'='*70}")
@@ -588,8 +787,8 @@ def main():
     print(f"✓ Successfully processed: {len(sub_files)} alignment(s)")
     print(f"✓ Individual substitution files: {len(sub_files)}")
     if sub_files:
-        print(f"✓ Merged analysis file: Merged_Substitution_Analysis.xlsx")
-    print(f"\nAll output files saved in: {working_dir}")
+        print(f"✓ Merged analysis file: {os.path.basename(merged_file)}")
+    print(f"\nAll output files saved in: {os.path.join(working_dir, OUTPUT_FOLDER)}/")
     print(f"{'='*70}\n")
 
 

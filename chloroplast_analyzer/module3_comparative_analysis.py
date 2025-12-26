@@ -1,3 +1,32 @@
+#!/usr/bin/env python3
+"""
+Comparative Chloroplast Genome Analysis
+========================================
+
+This script performs comprehensive comparative analysis of chloroplast genomes by:
+1. Extracting genome structure information (LSC, SSC, IR regions)
+2. Calculating genome lengths for each region
+3. Computing GC content for regions and gene types
+4. Generating publication-quality comparative table
+
+Author: Abdullah
+Version: 1.0
+Date: December 2025
+
+Dependencies:
+    - biopython
+    - pandas
+    - openpyxl
+
+Usage:
+    Place GenBank files (.gb, .gbf, .gbk) in the working directory and run:
+    python module3_comparative_analysis.py
+
+Output:
+    Module3_Comparative_Analysis/
+        - Comparative_Genome_Analysis.xlsx
+"""
+
 import os
 import pandas as pd
 from Bio import SeqIO
@@ -5,95 +34,136 @@ from openpyxl import load_workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
 
+# ============================================================================
+# CONSTANTS
+# ============================================================================
+
+OUTPUT_FOLDER = "Module3_Comparative_Analysis"
+OUTPUT_FILENAME = "Comparative_Genome_Analysis.xlsx"
+
+
+# ============================================================================
+# ANALYSIS FUNCTIONS
+# ============================================================================
+
 # Function to calculate GC content with rounding to two decimal places
 def calculate_gc(sequence):
     total_bases = len(sequence)
     gc_count = sequence.count('G') + sequence.count('C')
     return round((gc_count / total_bases) * 100, 2) if total_bases > 0 else 0
 
+# ============================================================================
+# MAIN ANALYSIS
+# ============================================================================
+
+print(f"\n{'='*70}")
+print("MODULE 3: COMPARATIVE GENOME ANALYSIS")
+print(f"{'='*70}")
+
 # Initialize list to store results
 results = []
 
 # Use current working directory
 folder_path = os.getcwd()
+print(f"\nWorking directory: {folder_path}")
+
+# Create output folder
+os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+print(f"Output folder: {OUTPUT_FOLDER}/")
+
+# Count GenBank files
+gb_files = [f for f in os.listdir(folder_path) if f.endswith(('.gb', '.gbf', '.gbk'))]
+print(f"\nFound {len(gb_files)} GenBank file(s)")
+print(f"\n{'='*70}")
+print("ANALYZING GENOMES")
+print(f"{'='*70}")
 
 # Loop through .gb and .gbf files in the folder
-for filename in os.listdir(folder_path):
-    if filename.endswith('.gb') or filename.endswith('.gbf'):
-        record_path = os.path.join(folder_path, filename)
-        record = SeqIO.read(record_path, 'genbank')
-        
-        # Basic genome information
-        species = record.annotations['organism']
-        genome_length = len(record.seq)
-        accession_number = record.annotations.get('accessions', ['N/A'])[0]
-        
-        # Initialize variables for LSC and SSC regions
-        lsc_feature = ssc_feature = None
-        
-        # Search for LSC and SSC in feature notes
-        for feature in record.features:
-            if 'note' in feature.qualifiers:
-                note_value = feature.qualifiers['note'][0].lower()
-                if any(keyword in note_value for keyword in ["large single copy (lsc)", "large single copy region (lsc)", "lsc"]):
-                    lsc_feature = feature
-                elif any(keyword in note_value for keyword in ["small single copy region (ssc)", "small single copy (ssc)", "ssc"]):
-                    ssc_feature = feature
-        
-        # Calculate exact lengths of LSC and SSC
-        lsc_length = len(record.seq[lsc_feature.location.start:lsc_feature.location.end]) if lsc_feature else 0
-        ssc_length = len(record.seq[ssc_feature.location.start:ssc_feature.location.end]) if ssc_feature else 0
-        
-        # Calculate IR length
-        ir_length = (genome_length - lsc_length - ssc_length) // 2
+for filename in gb_files:
+    print(f"\nProcessing: {filename}")
+    record_path = os.path.join(folder_path, filename)
+    record = SeqIO.read(record_path, 'genbank')
+    
+    # Basic genome information
+    species = record.annotations['organism']
+    genome_length = len(record.seq)
+    accession_number = record.annotations.get('accessions', ['N/A'])[0]
+    
+    print(f"  - Species: {species}")
+    print(f"  - Genome length: {genome_length:,} bp")
+    
+    # Initialize variables for LSC and SSC regions
+    lsc_feature = ssc_feature = None
+    
+    # Search for LSC and SSC in feature notes
+    for feature in record.features:
+        if 'note' in feature.qualifiers:
+            note_value = feature.qualifiers['note'][0].lower()
+            if any(keyword in note_value for keyword in ["large single copy (lsc)", "large single copy region (lsc)", "lsc"]):
+                lsc_feature = feature
+            elif any(keyword in note_value for keyword in ["small single copy region (ssc)", "small single copy (ssc)", "ssc"]):
+                ssc_feature = feature
+    
+    # Calculate exact lengths of LSC and SSC
+    lsc_length = len(record.seq[lsc_feature.location.start:lsc_feature.location.end]) if lsc_feature else 0
+    ssc_length = len(record.seq[ssc_feature.location.start:ssc_feature.location.end]) if ssc_feature else 0
+    
+    # Calculate IR length
+    ir_length = (genome_length - lsc_length - ssc_length) // 2
 
-        # Calculate GC content
-        total_gc = calculate_gc(record.seq)
-        lsc_gc = calculate_gc(record.seq[lsc_feature.location.start:lsc_feature.location.end]) if lsc_feature else 0
-        ssc_gc = calculate_gc(record.seq[ssc_feature.location.start:ssc_feature.location.end]) if ssc_feature else 0
+    # Calculate GC content
+    total_gc = calculate_gc(record.seq)
+    lsc_gc = calculate_gc(record.seq[lsc_feature.location.start:lsc_feature.location.end]) if lsc_feature else 0
+    ssc_gc = calculate_gc(record.seq[ssc_feature.location.start:ssc_feature.location.end]) if ssc_feature else 0
 
-        # IR = everything except LSC and SSC
-        if lsc_feature and ssc_feature:
-            ir_seq = (
-                record.seq[:lsc_feature.location.start] +
-                record.seq[lsc_feature.location.end:ssc_feature.location.start] +
-                record.seq[ssc_feature.location.end:]
-            )
-            ir_gc = calculate_gc(ir_seq)
+    # IR = everything except LSC and SSC
+    if lsc_feature and ssc_feature:
+        ir_seq = (
+            record.seq[:lsc_feature.location.start] +
+            record.seq[lsc_feature.location.end:ssc_feature.location.start] +
+            record.seq[ssc_feature.location.end:]
+        )
+        ir_gc = calculate_gc(ir_seq)
+    else:
+        ir_gc = 0
+    
+    # Extract sequences for tRNA, rRNA, CDS
+    tRNA_seq = rRNA_seq = CDS_seq = ""
+
+    for feature in record.features:
+        parts = []
+        if hasattr(feature.location, "parts"):
+            parts = feature.location.parts
         else:
-            ir_gc = 0
-        
-        # Extract sequences for tRNA, rRNA, CDS
-        tRNA_seq = rRNA_seq = CDS_seq = ""
+            parts = [feature.location]
 
-        for feature in record.features:
-            parts = []
-            if hasattr(feature.location, "parts"):
-                parts = feature.location.parts
-            else:
-                parts = [feature.location]
+        if feature.type == 'CDS':
+            for part in parts:
+                CDS_seq += part.extract(record.seq)
+        elif feature.type == 'tRNA':
+            for part in parts:
+                tRNA_seq += part.extract(record.seq)
+        elif feature.type == 'rRNA':
+            for part in parts:
+                rRNA_seq += part.extract(record.seq)
 
-            if feature.type == 'CDS':
-                for part in parts:
-                    CDS_seq += part.extract(record.seq)
-            elif feature.type == 'tRNA':
-                for part in parts:
-                    tRNA_seq += part.extract(record.seq)
-            elif feature.type == 'rRNA':
-                for part in parts:
-                    rRNA_seq += part.extract(record.seq)
+    # GC content for gene groups
+    tRNA_gc = calculate_gc(tRNA_seq)
+    rRNA_gc = calculate_gc(rRNA_seq)
+    CDS_gc = calculate_gc(CDS_seq)
+    
+    # Store results as NUMBERS (not formatted strings)
+    results.append([
+        species, genome_length, lsc_length, ssc_length, ir_length, 
+        total_gc, lsc_gc, ssc_gc, ir_gc, 
+        tRNA_gc, rRNA_gc, CDS_gc, accession_number
+    ])
+    
+    print(f"  ✓ Analysis complete")
 
-        # GC content for gene groups
-        tRNA_gc = calculate_gc(tRNA_seq)
-        rRNA_gc = calculate_gc(rRNA_seq)
-        CDS_gc = calculate_gc(CDS_seq)
-        
-        # Store results as NUMBERS (not formatted strings)
-        results.append([
-            species, genome_length, lsc_length, ssc_length, ir_length, 
-            total_gc, lsc_gc, ssc_gc, ir_gc, 
-            tRNA_gc, rRNA_gc, CDS_gc, accession_number
-        ])
+print(f"\n{'='*70}")
+print("CREATING COMPARATIVE TABLE")
+print(f"{'='*70}")
 
 # Create output table with new column structure
 df = pd.DataFrame(results, columns=[
@@ -102,8 +172,8 @@ df = pd.DataFrame(results, columns=[
     "tRNA", "rRNA", "CDS", "Accession Number"
 ])
 
-# Save to Excel
-output_file = 'genome_analysis_publication_quality.xlsx'
+# Save to Excel in output folder
+output_file = os.path.join(OUTPUT_FOLDER, OUTPUT_FILENAME)
 df.to_excel(output_file, index=False, engine='openpyxl')
 
 # Apply publication-quality formatting
@@ -225,16 +295,20 @@ ws.merge_cells(f'A{footnote_row}:M{footnote_row}')
 footnote_cell = ws.cell(row=footnote_row, column=1)
 footnote_cell.value = ('GC: guanine-cytosine content; LSC: large single-copy region; SSC: small single-copy region; '
                        'IR: inverted repeat region; Complete: complete chloroplast genome; '
-                       'tRNA: transfer RNA; rRNA: ribosomal RNA; CDS: protein-coding sequences.')
-footnote_cell.font = Font(name='Arial', size=9, italic=True)
+                       'tRNA: transfer RNA; rRNA: ribosomal RNA; CDS: protein-coding gene.')
+footnote_cell.font = Font(name='Arial', size=9)
 footnote_cell.alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
 ws.row_dimensions[footnote_row].height = 30
 
 # Save formatted workbook
 wb.save(output_file)
 
-print(f"✓ Publication-quality table created: {output_file}")
-print(f"✓ Location: {folder_path}")
+print(f"\n{'='*70}")
+print("ANALYSIS COMPLETE")
+print(f"{'='*70}")
+print(f"✓ Publication-quality table created: {OUTPUT_FILENAME}")
 print(f"✓ Total genomes analyzed: {len(results)}")
 print(f"✓ Format: Two-level headers with grouped columns")
 print(f"✓ Footnote added with abbreviation definitions")
+print(f"\nOutput saved in: {os.path.join(folder_path, OUTPUT_FOLDER)}/")
+print(f"{'='*70}\n")

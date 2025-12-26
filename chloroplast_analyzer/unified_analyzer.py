@@ -3,7 +3,7 @@
 UNIFIED CHLOROPLAST GENOME ANALYSIS SUITE
 ==========================================
 
-Version: 2.1.0 (Modular Import System)
+Version: 1.0 (Modular Import System)
 
 This script imports and runs 9 analysis modules.
 Place all individual script files in the same folder as this unified script.
@@ -27,7 +27,7 @@ Usage:
 
 Folder Structure:
     /home/abdullah/script/unified/
-    ├── chloroplast_unified_analyzer.py  (this file)
+    ├── unified_analyzer.py  (this file)
     ├── module1_gene_count.py
     ├── module2_gene_table.py
     ├── module3_comparative_analysis.py
@@ -51,7 +51,7 @@ import importlib.util
 from pathlib import Path
 
 print("="*80)
-print("CHLOROPLAST GENOME UNIFIED ANALYSIS SUITE v2.1.0")
+print("CHLOROPLAST GENOME UNIFIED ANALYSIS SUITE v1.0.0")
 print("="*80)
 print()
 

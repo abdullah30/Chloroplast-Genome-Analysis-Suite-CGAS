@@ -1,3 +1,30 @@
+#!/usr/bin/env python3
+"""
+Chloroplast Gene Content Table Generator
+=========================================
+
+This script generates publication-quality gene content tables from GenBank files.
+
+Features:
+- Categorizes genes by function
+- Detects introns and duplications
+- Creates formatted Word documents
+- Combines all tables into one master document
+
+Author: Abdullah
+Version: 1.0
+Date: December 2025
+
+Usage:
+    Place GenBank files (.gb, .gbf, .gbk) in the working directory and run:
+    python module2_gene_table.py
+
+Output:
+    Module2_Gene_Content_Tables/
+        - Individual tables: Table_[species].docx
+        - Combined table: Complete_Gene_Content_Tables.docx
+"""
+
 import pandas as pd
 from Bio import SeqIO
 from docx import Document
@@ -7,6 +34,13 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 import os
 import glob
+
+# ============================================================================
+# CONSTANTS
+# ============================================================================
+
+OUTPUT_FOLDER = "Module2_Gene_Content_Tables"
+COMBINED_OUTPUT = "Complete_Gene_Content_Tables.docx"
 
 # Mapping for showing both names
 name_map = {
@@ -36,20 +70,66 @@ def has_introns(features, gene_name, feature_type="CDS"):
             return True
     return False
 
+# Function to check if a gene is a pseudogene
+def is_pseudogene(features, gene_name):
+    """
+    Check if a gene is marked as pseudogene.
+    For protein-coding genes: if no CDS exists, it's a pseudogene.
+    For tRNA/rRNA: only if explicitly marked as pseudo.
+    """
+    # First check if explicitly marked as pseudo
+    for feature in features:
+        if feature.type in ("gene", "CDS", "tRNA", "rRNA"):
+            if gene_name in feature.qualifiers.get("gene", []):
+                # Check for pseudo qualifier
+                if "pseudo" in feature.qualifiers:
+                    return True
+                # Check for pseudogene in product or note
+                for field in ["product", "note"]:
+                    if field in feature.qualifiers:
+                        text = " ".join(feature.qualifiers[field]).lower()
+                        if "pseudo" in text or "pseudogene" in text:
+                            return True
+    
+    # Special check for protein-coding genes: if no CDS exists, it's a pseudogene
+    # Check if this is a protein-coding gene (not tRNA or rRNA)
+    if not gene_name.lower().startswith(('trn', 'rrn')):
+        # Look for gene feature
+        gene_exists = False
+        cds_exists = False
+        
+        for feature in features:
+            if feature.type == "gene" and gene_name in feature.qualifiers.get("gene", []):
+                gene_exists = True
+            if feature.type == "CDS" and gene_name in feature.qualifiers.get("gene", []):
+                cds_exists = True
+        
+        # If gene exists but no CDS -> pseudogene
+        if gene_exists and not cds_exists:
+            return True
+    
+    return False
+
 # Extract gene content
 def extract_gene_content(genbank_file):
     gene_data = {
         "Category for genes": [],
         "Group of genes": [],
         "Name of genes": [],
-        "Amount": []
+        "Total": []
     }
 
     intron_containing_cds = set()
     intron_containing_trna = set()
+    pseudogene_list = set()
+    organism_name = "Unknown"
 
     for record in SeqIO.parse(genbank_file, "genbank"):
+        # Extract organism name from GenBank annotations
+        organism_name = record.annotations.get("organism", "Unknown")
+        
         gene_count = {}
+        pseudogene_count = {}
 
         for feature in record.features:
             if feature.type == "gene":
@@ -58,6 +138,14 @@ def extract_gene_content(genbank_file):
                 if gene_name:
                     # Convert to display name
                     display_name = get_display_name(gene_name)
+                    
+                    # Check if it's a pseudogene
+                    if is_pseudogene(record.features, gene_name):
+                        pseudogene_list.add(display_name)
+                        # Add Ψ (psi) symbol for pseudogene
+                        display_name_with_marker = display_name + "\u03A8"
+                        pseudogene_count[display_name_with_marker] = pseudogene_count.get(display_name_with_marker, 0) + 1
+                        continue  # Don't count pseudogenes as regular genes
 
                     # Check introns on ORIGINAL gene name
                     if has_introns(record.features, gene_name, "CDS"):
@@ -80,8 +168,8 @@ def extract_gene_content(genbank_file):
                 ("tRNA genes", "trn")
             ],
             "Photosynthesis": [
-                ("Photosystem Ⅰ", "psa"),
-                ("Photosystem Ⅱ", "psb"),
+                ("Photosystem I", "psa"),
+                ("Photosystem II", "psb"),
                 ("NADPH dehydrogenase", "ndh"),
                 ("Cytochrome b/f complex", "pet"),
                 ("Subunits of ATP synthase", "atp"),
@@ -98,7 +186,9 @@ def extract_gene_content(genbank_file):
                 ("Translation initiation factor", "infA"),
                 # Conserved open reading frames (excluding ycf3 and ycf4)
                 ("Conserved open reading frames", lambda gene: gene.startswith("ycf") 
-                 and not gene.startswith("ycf3") and not gene.startswith("ycf4"))
+                 and not gene.startswith("ycf3") and not gene.startswith("ycf4")),
+                # Pseudogenes as last group
+                ("Pseudogenes", "PSEUDOGENE_PLACEHOLDER")
             ]
         }
 
@@ -108,25 +198,31 @@ def extract_gene_content(genbank_file):
             for group_name, pattern in groups:
                 matched_genes = {}
                 
-                # Handle different pattern types
-                if callable(pattern):
-                    # Use callable function for matching
-                    for k, v in gene_count.items():
-                        k_no_star = k.replace("*", "")
-                        if pattern(k_no_star):
-                            matched_genes[k] = v
-                elif isinstance(pattern, list):
-                    # Exact match for list of specific gene names
-                    for k, v in gene_count.items():
-                        k_no_star = k.replace("*", "")
-                        if k_no_star in pattern:
-                            matched_genes[k] = v
+                # Special handling for Pseudogenes group
+                if pattern == "PSEUDOGENE_PLACEHOLDER":
+                    # Use pseudogene_count instead of gene_count
+                    if pseudogene_count:
+                        matched_genes = pseudogene_count.copy()
                 else:
-                    # String prefix match
-                    for k, v in gene_count.items():
-                        k_no_star = k.replace("*", "")
-                        if k_no_star.startswith(pattern):
-                            matched_genes[k] = v
+                    # Handle different pattern types - FIXED INDENTATION
+                    if callable(pattern):
+                        # Use callable function for matching
+                        for k, v in gene_count.items():
+                            k_no_star = k.replace("*", "")
+                            if pattern(k_no_star):
+                                matched_genes[k] = v
+                    elif isinstance(pattern, list):
+                        # Exact match for list of specific gene names
+                        for k, v in gene_count.items():
+                            k_no_star = k.replace("*", "")
+                            if k_no_star in pattern:
+                                matched_genes[k] = v
+                    else:
+                        # String prefix match
+                        for k, v in gene_count.items():
+                            k_no_star = k.replace("*", "")
+                            if k_no_star.startswith(pattern):
+                                matched_genes[k] = v
                 
                 if matched_genes:
                     categorized_genes.update(matched_genes.keys())
@@ -142,7 +238,7 @@ def extract_gene_content(genbank_file):
                     )
                     # Count rps12 as 1 gene (trans-spliced), others as their actual count
                     total_count = sum([1 if "rps12" in k.lower() else v for k, v in matched_genes.items()])
-                    gene_data["Amount"].append(total_count)
+                    gene_data["Total"].append(total_count)
 
         # Remaining genes (Excluding genes)
         excluding_genes = {k: v for k, v in gene_count.items()
@@ -158,19 +254,20 @@ def extract_gene_content(genbank_file):
             )
             # Count rps12 as 1 gene (trans-spliced), others as their actual count
             total_count = sum([1 if "rps12" in k.lower() else v for k, v in excluding_genes.items()])
-            gene_data["Amount"].append(total_count)
+            gene_data["Total"].append(total_count)
 
     # Add total row
-    total_genes = sum(gene_data["Amount"])
+    total_genes = sum(gene_data["Total"])
     gene_data["Category for genes"].append("")
     gene_data["Group of genes"].append("")
     gene_data["Name of genes"].append("Total number of genes")
-    gene_data["Amount"].append(total_genes)
+    gene_data["Total"].append(total_genes)
 
     return pd.DataFrame(gene_data), {
         "CDS with introns": list(intron_containing_cds),
-        "tRNA with introns": list(intron_containing_trna)
-    }
+        "tRNA with introns": list(intron_containing_trna),
+        "Pseudogenes": list(pseudogene_list)
+    }, organism_name
 
 # Function to add superscript
 def add_superscript(run, text):
@@ -239,7 +336,7 @@ def add_italic_text_with_superscript(cell, text):
             a_sup.italic = True
             add_superscript(a_sup, "a")
 
-def create_table(df, output_file):
+def create_table(df, output_file, species_name="Unknown", has_pseudogenes=False):
     doc = Document()
     
     # Set document margins for better layout
@@ -250,12 +347,23 @@ def create_table(df, output_file):
         section.left_margin = Inches(1)
         section.right_margin = Inches(1)
     
-    # Add table title
+    # Add title: "Table S1. Gene content of the chloroplast genome of Species name"
     title = doc.add_paragraph()
-    title_run = title.add_run("Table S1. Gene content of the chloroplast genome")
+    
+    # Regular text
+    title_run = title.add_run("Table S1. Gene content of the chloroplast genome of ")
     title_run.bold = True
-    title_run.font.size = Pt(12)
-    title.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    title_run.font.size = Pt(14)
+    
+    # Species name in italic
+    species_run = title.add_run(species_name)
+    species_run.bold = True
+    species_run.italic = True
+    species_run.font.size = Pt(14)
+    
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    doc.add_paragraph()  # Add spacing
     
     # Create table
     table = doc.add_table(rows=1, cols=len(df.columns))
@@ -263,7 +371,7 @@ def create_table(df, output_file):
     
     # Format header row
     hdr = table.rows[0].cells
-    header_labels = ["Category for genes", "Group of genes", "Name of genes", "Gene number"]
+    header_labels = ["Category for genes", "Group of genes", "Name of genes", "Total"]
     
     for i, label in enumerate(header_labels):
         hdr[i].text = label
@@ -320,7 +428,7 @@ def create_table(df, output_file):
         else:
             add_italic_text_with_superscript(cells[2], row["Name of genes"])
         
-        cells[3].text = str(row["Amount"])
+        cells[3].text = str(row["Total"])
         
         # Set font size for all cells
         for cell in cells:
@@ -329,20 +437,32 @@ def create_table(df, output_file):
                     run.font.size = Pt(10)
     
     # Merge cells for each category and center align
-    for category, row_indices in category_rows.items():
+    # Process in reverse order by row number to avoid index shifting issues
+    for category in sorted(category_rows.keys(), key=lambda x: min(category_rows[x])):
+        row_indices = sorted(category_rows[category])
+        
         if len(row_indices) > 1:
-            # Get the first cell
+            # Get the first and last cells
             first_cell = table.rows[row_indices[0]].cells[0]
+            last_cell = table.rows[row_indices[-1]].cells[0]
             
-            # Merge with all subsequent cells in this category
-            for i in range(1, len(row_indices)):
-                first_cell.merge(table.rows[row_indices[i]].cells[0])
+            # Merge using the two-cell method (more reliable)
+            first_cell.merge(last_cell)
             
-            # Center align the merged cell
+            # Ensure category name is in merged cell
+            first_cell.text = category
+            
+            # Center align horizontally
             first_cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-            # Also set vertical alignment to center
+            
+            # Center align vertically
             tc = first_cell._element
             tcPr = tc.get_or_add_tcPr()
+            # Remove existing vAlign if present
+            for child in list(tcPr):
+                if child.tag.endswith('vAlign'):
+                    tcPr.remove(child)
+            # Add new vAlign
             tcVAlign = OxmlElement('w:vAlign')
             tcVAlign.set(qn('w:val'), 'center')
             tcPr.append(tcVAlign)
@@ -367,7 +487,14 @@ def create_table(df, output_file):
     sup_run.font.size = Pt(10)
     add_superscript(sup_run, "a")
     
-    final_text = notes.add_run(" indicate genes containing introns and duplicated genes in inverted repeat (IR) regions, respectively. The ")
+    # Only add Ψ if pseudogenes exist
+    if has_pseudogenes:
+        text_run2 = notes.add_run(", and \u03A8")
+        text_run2.font.size = Pt(10)
+        final_text = notes.add_run(" indicate genes containing introns, duplicated genes in inverted repeat (IR) regions, and pseudogenes, respectively. The ")
+    else:
+        final_text = notes.add_run(" indicate genes containing introns and duplicated genes in inverted repeat (IR) regions, respectively. The ")
+    
     final_text.font.size = Pt(10)
     
     # Add italic rps12
@@ -383,49 +510,210 @@ def create_table(df, output_file):
     print(f"✓ Saved: {output_file}")
 
 # Process a single GenBank file
-def process_genbank_file(genbank_file):
+def process_genbank_file(genbank_file, output_folder):
     """Process a single GenBank file and create its Word document"""
     # Extract filename without extension for output naming
     base_name = os.path.splitext(os.path.basename(genbank_file))[0]
-    output_file = f"Table_{base_name}.docx"
+    output_file = os.path.join(output_folder, f"Table_{base_name}.docx")
     
     print(f"\nProcessing: {genbank_file}")
     
     try:
-        df, introns = extract_gene_content(genbank_file)
-        create_table(df, output_file)
+        df, introns, organism_name = extract_gene_content(genbank_file)
+        has_pseudogenes = len(introns['Pseudogenes']) > 0
+        create_table(df, output_file, organism_name, has_pseudogenes)
         
+        print(f"  Species: {organism_name}")
         print(f"  CDS with introns: {introns['CDS with introns']}")
         print(f"  tRNA with introns: {introns['tRNA with introns']}")
+        if introns['Pseudogenes']:
+            print(f"  Pseudogenes: {introns['Pseudogenes']}")
+        print(f"  ✓ Saved: {os.path.basename(output_file)}")
         
-        return True
+        return (True, df, organism_name, has_pseudogenes)
     except Exception as e:
-        print(f"✗ Error processing {genbank_file}: {str(e)}")
-        return False
+        print(f"  ✗ Error processing {genbank_file}: {str(e)}")
+        return (False, None, None, False)
+
+
+def create_combined_document(all_tables_data, output_file):
+    """Create a combined Word document with all species tables"""
+    print(f"\n{'='*60}")
+    print("Creating combined document...")
+    print(f"{'='*60}")
+    
+    doc = Document()
+    
+    # Set document margins
+    sections = doc.sections
+    for section in sections:
+        section.top_margin = Inches(1)
+        section.bottom_margin = Inches(1)
+        section.left_margin = Inches(1)
+        section.right_margin = Inches(1)
+    
+    # Add each species table
+    for idx, (df, species_name, has_pseudogenes) in enumerate(all_tables_data):
+        if idx > 0:
+            # Add page break between species
+            doc.add_page_break()
+        
+        # Add species title
+        title = doc.add_paragraph()
+        
+        # Regular text
+        title_run = title.add_run(f"Table S{idx+1}. Gene content of the chloroplast genome of ")
+        title_run.bold = True
+        title_run.font.size = Pt(14)
+        
+        # Species name in italic
+        species_run = title.add_run(species_name)
+        species_run.bold = True
+        species_run.italic = True
+        species_run.font.size = Pt(14)
+        
+        title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        doc.add_paragraph()  # Spacing
+        
+        # Create table
+        table = doc.add_table(rows=len(df) + 1, cols=4)
+        table.style = 'Table Grid'
+        
+        # Header row
+        headers = ["Category for genes", "Group of genes", "Name of genes", "Total"]
+        header_cells = table.rows[0].cells
+        
+        for i, header_text in enumerate(headers):
+            cell = header_cells[i]
+            cell.text = header_text
+            
+            for paragraph in cell.paragraphs:
+                for run in paragraph.runs:
+                    run.font.bold = True
+                    run.font.size = Pt(10)
+                paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            
+            # Center align vertically
+            tc = cell._element
+            tcPr = tc.get_or_add_tcPr()
+            tcVAlign = OxmlElement('w:vAlign')
+            tcVAlign.set(qn('w:val'), 'center')
+            tcPr.append(tcVAlign)
+        
+        # Data rows
+        for i, row in df.iterrows():
+            table_row = table.rows[i + 1]
+            
+            for j, col_name in enumerate(headers):
+                cell = table_row.cells[j]
+                cell_value = str(row[col_name] if col_name != "Total" else row["Total"])
+                
+                if col_name == "Name of genes" and cell_value != "Total number of genes":
+                    add_italic_text_with_superscript(cell, cell_value)
+                else:
+                    cell.text = cell_value
+                    for paragraph in cell.paragraphs:
+                        for run in paragraph.runs:
+                            run.font.size = Pt(10)
+                            if "Total" in cell_value:
+                                run.font.bold = True
+                        if j == 3:  # Total column
+                            paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        # Set column widths
+        widths = [Inches(1.5), Inches(2.2), Inches(3.5), Inches(0.8)]
+        for row in table.rows:
+            for idx_w, width in enumerate(widths):
+                row.cells[idx_w].width = width
+        
+        # Add notes
+        doc.add_paragraph()
+        notes = doc.add_paragraph()
+        notes_run = notes.add_run("Note: ")
+        notes_run.bold = True
+        notes_run.font.size = Pt(10)
+        
+        text_run = notes.add_run("*, ")
+        text_run.font.size = Pt(10)
+        
+        sup_run = notes.add_run("a")
+        sup_run.font.size = Pt(10)
+        add_superscript(sup_run, "a")
+        
+        # Only add Ψ if this species has pseudogenes
+        if has_pseudogenes:
+            text_run2 = notes.add_run(", and \u03A8")
+            text_run2.font.size = Pt(10)
+            final_text = notes.add_run(" indicate genes containing introns, duplicated genes in inverted repeat (IR) regions, and pseudogenes, respectively. The ")
+        else:
+            final_text = notes.add_run(" indicate genes containing introns and duplicated genes in inverted repeat (IR) regions, respectively. The ")
+        
+        final_text.font.size = Pt(10)
+        
+        rps12_run = notes.add_run("rps12")
+        rps12_run.font.size = Pt(10)
+        rps12_run.italic = True
+        
+        trans_text = notes.add_run(" gene is a trans-spliced gene and is not marked as duplicated despite appearing in multiple locations.")
+        trans_text.font.size = Pt(10)
+    
+    doc.save(output_file)
+    print(f"\n✓ Combined document saved: {os.path.basename(output_file)}")
+    print(f"  Total species: {len(all_tables_data)}")
 
 # MAIN
 def main():
-    # Find all .gb files in the current directory
-    gb_files = glob.glob("*.gb")
+    print(f"\n{'='*60}")
+    print("MODULE 2: GENE CONTENT TABLE GENERATOR")
+    print(f"{'='*60}")
+    
+    # Create output folder
+    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+    print(f"\nOutput folder: {OUTPUT_FOLDER}/")
+    
+    # Find all .gb, .gbf, .gbk files in the current directory
+    gb_files = []
+    for ext in ['*.gb', '*.gbf', '*.gbk']:
+        gb_files.extend(glob.glob(ext))
     
     if not gb_files:
-        print("No .gb files found in the current directory!")
+        print("\nNo GenBank files found in the current directory!")
+        print("Supported extensions: .gb, .gbf, .gbk")
         return
     
-    print(f"Found {len(gb_files)} GenBank file(s):")
+    print(f"\nFound {len(gb_files)} GenBank file(s):")
     for f in gb_files:
         print(f"  - {f}")
     
     print("\n" + "="*60)
+    print("PROCESSING FILES")
+    print("="*60)
     
-    # Process each file
+    # Process each file and collect data for combined document
     success_count = 0
+    all_tables_data = []
+    
     for gb_file in gb_files:
-        if process_genbank_file(gb_file):
+        success, df, organism_name, has_pseudogenes = process_genbank_file(gb_file, OUTPUT_FOLDER)
+        if success:
             success_count += 1
+            all_tables_data.append((df, organism_name, has_pseudogenes))
+    
+    # Create combined document if we have successful results
+    if all_tables_data:
+        combined_file = os.path.join(OUTPUT_FOLDER, COMBINED_OUTPUT)
+        create_combined_document(all_tables_data, combined_file)
     
     print("\n" + "="*60)
-    print(f"\nSummary: Successfully processed {success_count}/{len(gb_files)} file(s)")
+    print("ANALYSIS COMPLETE")
+    print("="*60)
+    print(f"\n✓ Successfully processed: {success_count}/{len(gb_files)} file(s)")
+    print(f"✓ Individual tables: {success_count}")
+    if all_tables_data:
+        print(f"✓ Combined document: {COMBINED_OUTPUT}")
+    print(f"\nAll files saved in: {os.path.join(os.getcwd(), OUTPUT_FOLDER)}/")
+    print("="*60 + "\n")
 
 if __name__ == "__main__":
     main()

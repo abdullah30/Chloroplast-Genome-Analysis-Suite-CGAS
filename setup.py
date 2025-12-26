@@ -18,7 +18,7 @@ setup(
     description='Chloroplast Genome Analysis Suite (CGAS) - A comprehensive toolkit for analyzing chloroplast genomes',
     long_description=long_description,
     long_description_content_type='text/markdown',
-    url='https://github.com/yourusername/chloroplast-analyzer',
+    url='https://github.com/abdullah30/Chloroplast-Genome-Analysis-Suite-CGAS',
     packages=find_packages(),
     classifiers=[
         'Development Status :: 4 - Beta',
@@ -72,8 +72,8 @@ setup(
     },
     keywords='chloroplast genome bioinformatics genomics analysis plastid CGAS',
     project_urls={
-        'Bug Reports': 'https://github.com/yourusername/chloroplast-analyzer/issues',
-        'Source': 'https://github.com/yourusername/chloroplast-analyzer',
-        'Documentation': 'https://github.com/yourusername/chloroplast-analyzer/blob/main/README.md',
+        'Bug Reports': 'https://github.com/abdullah30/Chloroplast-Genome-Analysis-Suite-CGAS/issues',
+        'Source': 'https://github.com/abdullah30/Chloroplast-Genome-Analysis-Suite-CGAS',
+        'Documentation': 'https://github.com/abdullah30/Chloroplast-Genome-Analysis-Suite-CGAS/blob/main/README.md',
     },
 )

@@ -42,10 +42,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/chloroplast-analyzer"
-Documentation = "https://github.com/yourusername/chloroplast-analyzer/blob/main/README.md"
-Repository = "https://github.com/yourusername/chloroplast-analyzer"
-"Bug Tracker" = "https://github.com/yourusername/chloroplast-analyzer/issues"
+Homepage = "https://github.com/abdullah30/Chloroplast-Genome-Analysis-Suite-CGAS"
+Documentation = "https://github.com/abdullah30/Chloroplast-Genome-Analysis-Suite-CGAS/blob/main/README.md"
+Repository = "https://github.com/abdullah30/Chloroplast-Genome-Analysis-Suite-CGAS"
+"Bug Tracker" = "https://github.com/abdullah30/Chloroplast-Genome-Analysis-Suite-CGAS/issues"
 
 [project.scripts]
 cgas = "chloroplast_analyzer.cli:main"

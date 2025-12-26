@@ -41,8 +41,8 @@ We are committed to providing a welcoming and inspiring community for all. Pleas
    ```bash
    # Click "Fork" on GitHub
    # Clone your fork
-   git clone https://github.com/YOUR_USERNAME/chloroplast-analyzer.git
-   cd chloroplast-analyzer
+   git clone https://github.com/abdullah30/Chloroplast-Genome-Analysis-Suite-CGAS.git
+   cd Chloroplast-Genome-Analysis-Suite-CGAS
    ```
 
 2. **Create virtual environment**
@@ -428,7 +428,7 @@ git push origin feature/new-analysis
 
 ```bash
 # Add upstream remote (once)
-git remote add upstream https://github.com/yourusername/chloroplast-analyzer.git
+git remote add upstream https://github.com/abdullah30/Chloroplast-Genome-Analysis-Suite-CGAS.git
 
 # Update your fork
 git checkout main

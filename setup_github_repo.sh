@@ -1,6 +1,6 @@
 #!/bin/bash
 # setup_github_repo.sh
-# Quick setup script to organize chloroplast-analyzer for GitHub
+# Quick setup script to organize cgasr for GitHub
 
 set -e  # Exit on error
 
@@ -10,7 +10,7 @@ echo "=========================================="
 echo ""
 
 # Configuration
-REPO_NAME="chloroplast-analyzer"
+REPO_NAME="Chloroplast-Genome-Analysis-Suite-CGAS"
 PACKAGE_NAME="chloroplast_analyzer"
 
 # Check if we're in the right place
@@ -117,7 +117,7 @@ echo "✓ Git repository initialized"
 echo ""
 echo "Creating initial commit..."
 git add .
-git commit -m "Initial commit: Chloroplast Analyzer v2.1.0
+git commit -m "Initial commit: Chloroplast Analyzer v1.0.0
 
 - Added all 9 analysis modules
 - Setup package structure for pip installation
@@ -153,11 +153,11 @@ echo "   git push -u origin main"
 echo ""
 echo "4. Test installation:"
 echo "   pip install git+https://github.com/YOUR_USERNAME/$REPO_NAME.git"
-echo "   chloroplast-analyze --version"
+echo "   cgas --version"
 echo ""
 echo "5. Optional - Create release tag:"
-echo "   git tag -a v2.1.0 -m 'Release version 2.1.0'"
-echo "   git push origin v2.1.0"
+echo "   git tag -a v1.0.0 -m 'Release version 1.0.0'"
+echo "   git push origin v1.0.0"
 echo ""
 echo "=========================================="
 echo ""

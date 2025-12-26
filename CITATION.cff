@@ -1,0 +1,38 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "CGAS (Chloroplast Genome Analysis Suite): An Automated Python Pipeline for Comprehensive Comparative Chloroplast Genomics"
+authors:
+  - family-names: "Abdullah"
+    given-names: ""
+  - family-names: "Yan"
+    given-names: "Rushan"
+  - family-names: "Tian"
+    given-names: "Xiaoxuan"
+version: 1.0.0
+date-released: 2025-12-21
+doi: 10.64898/2025.12.21.695765
+url: "https://github.com/abdullah30/Chloroplast-Genome-Analysis-Suite-CGAS"
+repository-code: "https://github.com/abdullah30/Chloroplast-Genome-Analysis-Suite-CGAS"
+keywords:
+  - chloroplast
+  - genomics
+  - bioinformatics
+  - python
+  - genome-analysis
+  - comparative-genomics
+license: MIT
+preferred-citation:
+  type: article
+  title: "CGAS (Chloroplast Genome Analysis Suite): An Automated Python Pipeline for Comprehensive Comparative Chloroplast Genomics"
+  authors:
+    - family-names: "Abdullah"
+      given-names: ""
+    - family-names: "Yan"
+      given-names: "Rushan"
+    - family-names: "Tian"
+      given-names: "Xiaoxuan"
+  journal: "bioRxiv"
+  year: 2025
+  doi: 10.64898/2025.12.21.695765
+  url: "https://doi.org/10.64898/2025.12.21.695765"

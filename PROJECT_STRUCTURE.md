@@ -3,7 +3,7 @@
 ## Directory Layout
 
 ```
-chloroplast-analyzer/
+Chloroplast-Genome-Analysis-Suite-CGAS/
 ├── README.md                              # Main documentation
 ├── INSTALL.md                             # Installation guide
 ├── USAGE.md                               # Command-line usage guide
@@ -95,8 +95,8 @@ Extended documentation for each module and API reference.
 
 ```bash
 # Create main directory
-mkdir chloroplast-analyzer
-cd chloroplast-analyzer
+mkdir Chloroplast-Genome-Analysis-Suite-CGAS
+cd Chloroplast-Genome-Analysis-Suite-CGAS
 
 # Create package directory
 mkdir chloroplast_analyzer
@@ -141,7 +141,7 @@ git commit -m "Initial commit: Chloroplast Analyzer v2.1.0"
 
 # Create GitHub repository (on GitHub website)
 # Then connect local to remote
-git remote add origin https://github.com/yourusername/chloroplast-analyzer.git
+git remote add origin https://github.com/abdullah30/Chloroplast-Genome-Analysis-Suite-CGAS.git
 git branch -M main
 git push -u origin main
 ```
@@ -153,15 +153,15 @@ git push -u origin main
 pip install -e .
 
 # Test commands
-chloroplast-analyze --version
-chloroplast-analyze --list
+cgas --version
+cgas --list
 ```
 
 ## GitHub Repository Settings
 
 ### Repository Name
 ```
-chloroplast-analyzer
+Chloroplast-Genome-Analysis-Suite-CGAS
 ```
 
 ### Description
@@ -197,7 +197,7 @@ pip install build twine
 python -m build
 
 # This creates:
-# dist/chloroplast-analyzer-2.1.0.tar.gz
+# dist/Chloroplast-Genome-Analysis-Suite-CGAS-2.1.0.tar.gz
 # dist/chloroplast_analyzer-2.1.0-py3-none-any.whl
 ```
 
@@ -208,7 +208,7 @@ python -m build
 twine upload --repository testpypi dist/*
 
 # Test installation
-pip install --index-url https://test.pypi.org/simple/ chloroplast-analyzer
+pip install --index-url https://test.pypi.org/simple/ Chloroplast-Genome-Analysis-Suite-CGAS
 
 # Upload to real PyPI
 twine upload dist/*
@@ -294,9 +294,9 @@ Save as `setup_repo.sh`:
 
 ```bash
 #!/bin/bash
-# Quick setup script for chloroplast-analyzer repository
+# Quick setup script for Chloroplast-Genome-Analysis-Suite-CGAS repository
 
-echo "Setting up chloroplast-analyzer repository..."
+echo "Setting up Chloroplast-Genome-Analysis-Suite-CGAS repository..."
 
 # Create structure
 mkdir -p chloroplast_analyzer tests examples docs/modules scripts

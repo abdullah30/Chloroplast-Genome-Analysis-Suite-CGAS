@@ -6,17 +6,17 @@
 
 ```bash
 # Install directly from GitHub
-pip install git+https://github.com/yourusername/chloroplast-analyzer.git
+pip install git+https://github.com/abdullah30/Chloroplast-Genome-Analysis-Suite-CGAS.git
 
 # Or with specific version/branch
-pip install git+https://github.com/yourusername/chloroplast-analyzer.git@v2.1.0
-pip install git+https://github.com/yourusername/chloroplast-analyzer.git@main
+pip install git+https://github.com/abdullah30/Chloroplast-Genome-Analysis-Suite-CGAS.git@v1.0.0
+pip install git+https://github.com/abdullah30/Chloroplast-Genome-Analysis-Suite-CGAS.git@main
 ```
 
 ### From PyPI (when published)
 
 ```bash
-pip install chloroplast-analyzer
+pip install Chloroplast-Genome-Analysis-Suite-CGAS
 ```
 
 ## Manual Installation
@@ -24,8 +24,8 @@ pip install chloroplast-analyzer
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/chloroplast-analyzer.git
-cd chloroplast-analyzer
+git clone https://github.com/abdullah30/Chloroplast-Genome-Analysis-Suite-CGAS.git
+cd Chloroplast-Genome-Analysis-Suite-CGAS
 ```
 
 ### 2. Install in Development Mode
@@ -92,7 +92,7 @@ source chloroplast_env/bin/activate
 chloroplast_env\Scripts\activate
 
 # Install package
-pip install git+https://github.com/yourusername/chloroplast-analyzer.git
+pip install git+https://github.com/abdullah30/Chloroplast-Genome-Analysis-Suite-CGAS.git
 
 # When done
 deactivate
@@ -111,7 +111,7 @@ conda activate chloroplast
 conda install -c conda-forge biopython pandas openpyxl numpy python-docx
 
 # Install package
-pip install git+https://github.com/yourusername/chloroplast-analyzer.git
+pip install git+https://github.com/abdullah30/Chloroplast-Genome-Analysis-Suite-CGAS.git
 
 # When done
 conda deactivate
@@ -123,24 +123,24 @@ After installation, verify the package is working:
 
 ```bash
 # Check version
-chloroplast-analyze --version
+cgas --version
 
 # List available modules
-chloroplast-analyze --list
+cgas --list
 
 # Show help
-chloroplast-analyze --help
+cgas --help
 ```
 
 ## Troubleshooting
 
-### "command not found: chloroplast-analyze"
+### "command not found: cgas"
 
 The installation path is not in your PATH. Try:
 
 ```bash
 # Find where pip installed scripts
-pip show chloroplast-analyzer
+pip show Chloroplast-Genome-Analysis-Suite-CGAS
 
 # Add to PATH (add to ~/.bashrc or ~/.zshrc)
 export PATH="$HOME/.local/bin:$PATH"
@@ -162,19 +162,19 @@ pip install biopython
 Use `--user` flag:
 
 ```bash
-pip install --user git+https://github.com/yourusername/chloroplast-analyzer.git
+pip install --user git+https://github.com/abdullah30/Chloroplast-Genome-Analysis-Suite-CGAS.git
 ```
 
 ### Upgrade Existing Installation
 
 ```bash
-pip install --upgrade git+https://github.com/yourusername/chloroplast-analyzer.git
+pip install --upgrade git+https://github.com/abdullah30/Chloroplast-Genome-Analysis-Suite-CGAS.git
 ```
 
 ### Uninstall
 
 ```bash
-pip uninstall chloroplast-analyzer
+pip uninstall Chloroplast-Genome-Analysis-Suite-CGAS
 ```
 
 ## For Developers
@@ -182,8 +182,8 @@ pip uninstall chloroplast-analyzer
 ### Clone for Development
 
 ```bash
-git clone https://github.com/yourusername/chloroplast-analyzer.git
-cd chloroplast-analyzer
+git clone https://github.com/abdullah30/Chloroplast-Genome-Analysis-Suite-CGAS.git
+cd Chloroplast-Genome-Analysis-Suite-CGAS
 pip install -e ".[dev]"
 ```
 

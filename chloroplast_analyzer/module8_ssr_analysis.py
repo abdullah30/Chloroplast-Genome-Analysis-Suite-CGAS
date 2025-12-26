@@ -5,6 +5,17 @@ Processes GenBank files to identify SSRs and classify them by:
 1. Genomic region (LSC/SSC/IR)
 2. Motif type (Mono/Di/Tri/Tetra/Penta/Hexa)
 3. Genomic location (gene names, intergenic spacers)
+
+Usage:
+    # Run in current directory (automatic detection)
+    python module8_ssr_analysis.py
+    
+    # Or provide explicit paths
+    python module8_ssr_analysis.py /path/to/genbank/folder/
+    python module8_ssr_analysis.py /path/to/genbank/ /custom/output/folder/
+    
+    # With custom thresholds
+    python module8_ssr_analysis.py -t 12,6,5,4,4,4
 """
 
 import os
@@ -145,6 +156,44 @@ class ChloroplastSSRAnalyzer:
             4: "Tetra", 5: "Penta", 6: "Hexa"
         }
         return motif_types.get(len(motif), "Other")
+    
+    def add_abbreviation_footnotes(self, ws, start_row):
+        """
+        Add abbreviation footnotes to Excel worksheet for publication quality.
+        
+        Args:
+            ws: openpyxl worksheet object
+            start_row: Row number to start adding footnotes
+        """
+        from openpyxl.styles import Font, Alignment
+        
+        footnotes = [
+            "Abbreviations:",
+            "LSC: Large Single Copy region",
+            "SSC: Small Single Copy region", 
+            "IR: Inverted Repeat region",
+            "IGS: Intergenic Spacer region",
+            "Mono: Mononucleotide repeat",
+            "Di: Dinucleotide repeat",
+            "Tri: Trinucleotide repeat",
+            "Tetra: Tetranucleotide repeat",
+            "Penta: Pentanucleotide repeat",
+            "Hexa: Hexanucleotide repeat",
+            "tRNA: Transfer RNA",
+            "rRNA: Ribosomal RNA"
+        ]
+        
+        row = start_row
+        for footnote in footnotes:
+            cell = ws.cell(row, 1, footnote)
+            if footnote == "Abbreviations:":
+                cell.font = Font(bold=True, size=10)
+            else:
+                cell.font = Font(size=9)
+            cell.alignment = Alignment(horizontal='left', vertical='top')
+            row += 1
+        
+        return row
     
     def get_genomic_location(self, ssr_start, ssr_end, record):
         """Determine precise genomic location of SSR"""
@@ -484,6 +533,9 @@ class ChloroplastSSRAnalyzer:
         ws.column_dimensions['H'].width = 25
         ws.column_dimensions['I'].width = 15
         
+        # Add footnotes at the bottom
+        self.add_abbreviation_footnotes(ws, row + 2)
+        
         wb.save(output_file)
     
     def create_individual_species_sheets(self, all_data, output_file):
@@ -548,6 +600,9 @@ class ChloroplastSSRAnalyzer:
             ws.column_dimensions['G'].width = 10
             ws.column_dimensions['H'].width = 25
             ws.column_dimensions['I'].width = 15
+            
+            # Add footnotes at the bottom of each sheet
+            self.add_abbreviation_footnotes(ws, row + 2)
         
         wb.save(output_file)
     
@@ -612,6 +667,10 @@ class ChloroplastSSRAnalyzer:
         ws.column_dimensions['A'].width = 30
         for col in range(2, len(headers) + 1):
             ws.column_dimensions[get_column_letter(col)].width = 12
+        
+        # Add footnotes at the bottom
+        last_data_row = len(summary_df) + 1
+        self.add_abbreviation_footnotes(ws, last_data_row + 2)
         
         return wb
     
@@ -687,20 +746,24 @@ def main(gb_folder=None, output_folder="ssr_analysis_results"):
             formatter_class=argparse.RawDescriptionHelpFormatter,
             epilog='''
 Examples:
-  # Basic usage
-  python chloroplast_ssr_analyzer.py /path/to/genbank/
+  # Run in current directory (automatic detection)
+  python module8_ssr_analysis.py
+  
+  # Specify GenBank folder
+  python module8_ssr_analysis.py /path/to/genbank/
   
   # Custom output folder
-  python chloroplast_ssr_analyzer.py /path/to/genbank/ /path/to/output/
+  python module8_ssr_analysis.py /path/to/genbank/ /path/to/output/
   
   # Custom thresholds (format: mono,di,tri,tetra,penta,hexa)
-  python chloroplast_ssr_analyzer.py /path/to/genbank/ -t 12,6,5,4,4,4
+  python module8_ssr_analysis.py /path/to/genbank/ -t 12,6,5,4,4,4
   
   # Less stringent thresholds
-  python chloroplast_ssr_analyzer.py /path/to/genbank/ -t 8,4,3,3,3,3
+  python module8_ssr_analysis.py /path/to/genbank/ -t 8,4,3,3,3,3
             '''
         )
-        parser.add_argument('genbank_folder', help='Path to folder containing GenBank (.gb/.gbk) files')
+        parser.add_argument('genbank_folder', nargs='?', default='.',
+                          help='Path to folder containing GenBank (.gb/.gbk) files (default: current directory)')
         parser.add_argument('output_folder', nargs='?', default='ssr_analysis_results',
                           help='Path to output folder (default: ssr_analysis_results)')
         parser.add_argument('-t', '--thresholds', type=str, default='10,5,4,3,3,3',
@@ -731,6 +794,8 @@ Examples:
     if not os.path.isdir(gb_folder):
         print(f"ERROR: Directory '{gb_folder}' does not exist!")
         return None
+    
+    print(f"Searching for GenBank files in: {os.path.abspath(gb_folder)}")
     
     analyzer = ChloroplastSSRAnalyzer(gb_folder, output_folder)
     
@@ -778,3 +843,6 @@ def run_module8(gb_folder='.',
     analyzer.run_analysis()
     return analyzer
 
+
+if __name__ == "__main__":
+    main()

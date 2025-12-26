@@ -67,8 +67,8 @@ Option B - **Manual Setup**:
 
 ```bash
 # 1. Create repository structure
-mkdir chloroplast-analyzer
-cd chloroplast-analyzer
+mkdir Chloroplast-Genome-Analysis-Suite-CGAS
+cd Chloroplast-Genome-Analysis-Suite-CGAS
 mkdir chloroplast_analyzer tests examples docs
 
 # 2. Copy setup files
@@ -109,7 +109,7 @@ authors = [
 ```
 
 **All README files**:
-- Replace `https://github.com/yourusername/chloroplast-analyzer` with your actual GitHub URL
+- Replace `https://github.com/abdullah30/Chloroplast-Genome-Analysis-Suite-CGAS` with your actual GitHub URL
 - Update any other personal information
 
 ### Step 4: Create GitHub Repository
@@ -117,17 +117,17 @@ authors = [
 1. **Go to GitHub**: https://github.com/new
 
 2. **Create new repository**:
-   - Repository name: `chloroplast-analyzer`
+   - Repository name: `Chloroplast-Genome-Analysis-Suite-CGAS`
    - Description: `A comprehensive toolkit for analyzing chloroplast genomes`
    - Public or Private: Your choice
    - **Don't** initialize with README, .gitignore, or license (we have these)
 
-3. **Note the repository URL**: `https://github.com/YOUR_USERNAME/chloroplast-analyzer.git`
+3. **Note the repository URL**: `https://github.com/YOUR_USERNAME/Chloroplast-Genome-Analysis-Suite-CGAS.git`
 
 ### Step 5: Push to GitHub
 
 ```bash
-cd chloroplast-analyzer
+cd Chloroplast-Genome-Analysis-Suite-CGAS
 
 # Initialize git (if not already done by setup script)
 git init
@@ -136,10 +136,10 @@ git init
 git add .
 
 # Create initial commit
-git commit -m "Initial commit: Chloroplast Analyzer v2.1.0"
+git commit -m "Initial commit: Chloroplast Analyzer v1.0.0"
 
 # Add remote (replace YOUR_USERNAME)
-git remote add origin https://github.com/YOUR_USERNAME/chloroplast-analyzer.git
+git remote add origin https://github.com/YOUR_USERNAME/Chloroplast-Genome-Analysis-Suite-CGAS.git
 
 # Push to GitHub
 git branch -M main
@@ -150,15 +150,15 @@ git push -u origin main
 
 ```bash
 # Create and push tag
-git tag -a v2.1.0 -m "Release version 2.1.0"
-git push origin v2.1.0
+git tag -a v1.0.0 -m "Release version 1.0.0"
+git push origin v1.0.0
 ```
 
 On GitHub:
 1. Go to your repository
 2. Click "Releases" → "Create a new release"
-3. Choose tag `v2.1.0`
-4. Title: `Version 2.1.0`
+3. Choose tag `v1.0.0`
+4. Title: `Version 1.0.0`
 5. Description: Copy from CHANGELOG.md
 6. Click "Publish release"
 
@@ -173,34 +173,32 @@ source test_env/bin/activate  # Linux/macOS
 # or: test_env\Scripts\activate  # Windows
 
 # Install from GitHub
-pip install git+https://github.com/YOUR_USERNAME/chloroplast-analyzer.git
+pip install git+https://github.com/YOUR_USERNAME/Chloroplast-Genome-Analysis-Suite-CGAS.git
 
 # Verify installation
-chloroplast-analyze --version
-chloroplast-analyze --list
+cgas --version
+cgas --list
 ```
 
 ### Test 2: Test Commands
 
 ```bash
 # Test help
-chloroplast-analyze --help
-chloroplast-gene-count --help
-chloroplast-ssr --help
+cgas --help
+cgas-count --help
+cgas-ssr --help
 
 # Test with data (if you have test files)
 cd /path/to/test/genbank/files
-chloroplast-analyze --modules 1
+cgas --modules 1
 ```
 
 ### Test 3: Verify All Commands
 
 ```bash
 # List all installed commands
-which chloroplast-analyze
-which chloroplast-gene-count
-which cp-analyze
-which cp-count
+which cgas
+which cgas-count
 
 # Or see all
 compgen -c | grep chloroplast
@@ -213,16 +211,16 @@ Once pushed to GitHub, anyone can install your tool:
 
 ```bash
 # Install
-pip install git+https://github.com/YOUR_USERNAME/chloroplast-analyzer.git
+pip install git+https://github.com/YOUR_USERNAME/Chloroplast-Genome-Analysis-Suite-CGAS.git
 
 # Use
 cd /path/to/genbank/files
-chloroplast-analyze
+cgas
 
 # Or specific modules
-chloroplast-gene-count
-chloroplast-codon
-chloroplast-ssr --mono 15 --di 7
+cgas-count
+cgas-codon
+cgas-ssr --mono 15 --di 7
 ```
 
 ## 🔄 Updating the Package
@@ -254,13 +252,13 @@ git push origin v2.1.1
 ### Users update by:
 
 ```bash
-pip install --upgrade git+https://github.com/YOUR_USERNAME/chloroplast-analyzer.git
+pip install --upgrade git+https://github.com/YOUR_USERNAME/Chloroplast-Genome-Analysis-Suite-CGAS.git
 ```
 
 ## 📋 Directory Structure (Final)
 
 ```
-chloroplast-analyzer/
+Chloroplast-Genome-Analysis-Suite-CGAS/
 ├── README.md
 ├── INSTALL.md
 ├── USAGE.md
@@ -295,64 +293,60 @@ chloroplast-analyzer/
 ### Installation Commands
 ```bash
 # Install from GitHub
-pip install git+https://github.com/YOUR_USERNAME/chloroplast-analyzer.git
+pip install git+https://github.com/YOUR_USERNAME/Chloroplast-Genome-Analysis-Suite-CGAS.git
 
 # Install specific version
-pip install git+https://github.com/YOUR_USERNAME/chloroplast-analyzer.git@v2.1.0
+pip install git+https://github.com/YOUR_USERNAME/Chloroplast-Genome-Analysis-Suite-CGAS.git@v1.0.0
 
 # Install in development mode (for contributors)
-git clone https://github.com/YOUR_USERNAME/chloroplast-analyzer.git
-cd chloroplast-analyzer
+git clone https://github.com/YOUR_USERNAME/Chloroplast-Genome-Analysis-Suite-CGAS.git
+cd Chloroplast-Genome-Analysis-Suite-CGAS
 pip install -e .
 ```
 
 ### Usage Commands
 ```bash
 # Main command (all modules)
-chloroplast-analyze
+cgas
 
 # Specific module
-chloroplast-analyze --module 1
-chloroplast-analyze --modules 1,4,8
+cgas --module 1
+cgas --modules 1,4,8
 
 # Individual commands
-chloroplast-gene-count      # Module 1
-chloroplast-gene-table      # Module 2
-chloroplast-compare         # Module 3
-chloroplast-codon           # Module 4
-chloroplast-aminoacid       # Module 5
-chloroplast-snp             # Module 6
-chloroplast-intron          # Module 7
-chloroplast-ssr             # Module 8
-chloroplast-diversity       # Module 9
+cgas-count      # Module 1
+cgas-table      # Module 2
+cgas-compare         # Module 3
+cgas-codon           # Module 4
+cgas-aa       # Module 5
+cgas-snp             # Module 6
+cgas-intron          # Module 7
+cgas-ssr             # Module 8
+cgas-diversity       # Module 9
 
 # Short aliases
-cp-analyze                  # Same as chloroplast-analyze
-cp-count                    # Same as chloroplast-gene-count
-cp-codon                    # Same as chloroplast-codon
-cp-ssr                      # Same as chloroplast-ssr
 # ... etc
 ```
 
 ### Options
 ```bash
 # Specify directories
-chloroplast-analyze --input ./data --output ./results
+cgas --input ./data --output ./results
 
 # List modules
-chloroplast-analyze --list
+cgas --list
 
 # Show version
-chloroplast-analyze --version
+cgas --version
 
 # Get help
-chloroplast-analyze --help
-chloroplast-ssr --help
+cgas --help
+cgas-ssr --help
 ```
 
 ## 🚨 Common Issues and Solutions
 
-### Issue 1: "command not found: chloroplast-analyze"
+### Issue 1: "command not found: cgas"
 
 **Solution**:
 ```bash
@@ -368,8 +362,8 @@ echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
 **Solution**:
 ```bash
 # Reinstall
-pip uninstall chloroplast-analyzer
-pip install git+https://github.com/YOUR_USERNAME/chloroplast-analyzer.git
+pip uninstall Chloroplast-Genome-Analysis-Suite-CGAS
+pip install git+https://github.com/YOUR_USERNAME/Chloroplast-Genome-Analysis-Suite-CGAS.git
 ```
 
 ### Issue 3: Module files not found

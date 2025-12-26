@@ -3,6 +3,15 @@
 GenBank Gene and Intergenic Region Analysis Pipeline
 Extracts genes, introns, and intergenic spacers from GenBank files, aligns them with MAFFT,
 and calculates nucleotide diversity for each region.
+
+Usage:
+    # Run in current directory (automatic detection)
+    python module9_diversity_analysis.py
+    
+    # Or provide explicit paths
+    python module9_diversity_analysis.py file1.gb file2.gb
+    python module9_diversity_analysis.py /path/to/genbank/folder/
+    python module9_diversity_analysis.py *.gb
 """
 
 import os
@@ -15,6 +24,18 @@ from Bio.SeqRecord import SeqRecord
 from collections import defaultdict
 import numpy as np
 import re
+
+def to_roman(num):
+    """Convert integer to Roman numeral (for intron numbering)."""
+    val = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1]
+    syms = ['M', 'CM', 'D', 'CD', 'C', 'XC', 'L', 'XL', 'X', 'IX', 'V', 'IV', 'I']
+    roman_num = ''
+    for i in range(len(val)):
+        count = int(num / val[i])
+        if count:
+            roman_num += syms[i] * count
+            num -= val[i] * count
+    return roman_num
 
 def normalize_gene_name(gene_name):
     """
@@ -253,7 +274,8 @@ def extract_features_from_genbank(genbank_files, output_dir):
                     print(f"    Skipping trans-spliced gene {gene_name} (span: {gene_span} bp)")
                     continue
                 
-                # Extract introns between exons
+                # First, collect valid introns to count them
+                valid_introns = []
                 for i in range(len(exon_parts) - 1):
                     intron_start = int(exon_parts[i].end)
                     intron_end = int(exon_parts[i + 1].start)
@@ -275,11 +297,24 @@ def extract_features_from_genbank(genbank_files, output_dir):
                     if strand == -1:
                         intron_seq = intron_seq.reverse_complement()
                     
-                    # Name the intron
-                    intron_name = f"{gene_name}_intron{i+1}"
+                    valid_introns.append((intron_start, intron_end, intron_seq, intron_length))
+                
+                # Now name and store introns based on count
+                num_introns = len(valid_introns)
+                for idx, (intron_start, intron_end, intron_seq, intron_length) in enumerate(valid_introns, 1):
+                    # Name the intron based on count
+                    if num_introns == 1:
+                        # Single intron: "gene intron" (no number)
+                        intron_name = f"{gene_name} intron"
+                        intron_suffix = "intron"
+                    else:
+                        # Multiple introns: "gene intron I", "gene intron II" (Roman numerals)
+                        roman_num = to_roman(idx)
+                        intron_name = f"{gene_name} intron {roman_num}"
+                        intron_suffix = f"intron{roman_num}"
                     
                     # Create unique ID including position to distinguish IR copies
-                    unique_intron_id = f"{organism_id}_pos{gene_start}_intron{i+1}"
+                    unique_intron_id = f"{organism_id}_pos{gene_start}_{intron_suffix}"
                     
                     intron_record = SeqRecord(
                         intron_seq,
@@ -384,15 +419,29 @@ def get_feature_order(genbank_file):
             exon_parts.sort(key=lambda x: int(x.start))
             
             if len(exon_parts) >= 2:
+                # First, count valid introns
+                valid_introns = []
                 for i in range(len(exon_parts) - 1):
                     intron_start = int(exon_parts[i].end)
                     intron_end = int(exon_parts[i + 1].start)
                     intron_length = intron_end - intron_start
                     
                     if 0 < intron_length <= 10000:
-                        intron_name = f"{gene_name}_intron{i+1}"
-                        if intron_name not in intron_positions:
-                            intron_positions[intron_name] = intron_start
+                        valid_introns.append((intron_start, i))
+                
+                # Now name introns based on count
+                num_introns = len(valid_introns)
+                for idx, (intron_start, _) in enumerate(valid_introns, 1):
+                    if num_introns == 1:
+                        # Single intron: "gene intron" (no number)
+                        intron_name = f"{gene_name} intron"
+                    else:
+                        # Multiple introns: "gene intron I", "gene intron II"
+                        roman_num = to_roman(idx)
+                        intron_name = f"{gene_name} intron {roman_num}"
+                    
+                    if intron_name not in intron_positions:
+                        intron_positions[intron_name] = intron_start
         
         # Get intergenic spacer positions
         if len(all_features) > 1:
@@ -497,17 +546,19 @@ def calculate_nucleotide_diversity(alignment_file):
 
 def main():
     # Configuration
+    # Check if user provided explicit paths
     if len(sys.argv) < 2:
-        print("Usage: python genbank_diversity_analysis.py <genbank_file1> <genbank_file2> ...")
-        print("       python genbank_diversity_analysis.py <directory>")
-        print("Example: python genbank_diversity_analysis.py *.gb")
-        print("Example: python genbank_diversity_analysis.py /path/to/genbank_folder/")
-        sys.exit(1)
+        # No arguments - work in current directory
+        print("No path provided. Searching for GenBank files in current directory...")
+        input_paths = ['.']  # Current directory
+    else:
+        # User provided explicit paths
+        input_paths = sys.argv[1:]
     
-    input_paths = sys.argv[1:]
     genbank_files = []
     
     # Process input paths - handle both files and directories
+    import glob
     for path in input_paths:
         if not os.path.exists(path):
             print(f"Error: Path {path} not found")
@@ -516,7 +567,6 @@ def main():
         if os.path.isdir(path):
             # If it's a directory, find all GenBank files
             print(f"Searching for GenBank files in directory: {path}")
-            import glob
             for ext in ['*.gb', '*.gbk', '*.genbank', '*.gbff']:
                 found_files = glob.glob(os.path.join(path, ext))
                 genbank_files.extend(found_files)
@@ -527,6 +577,13 @@ def main():
     if not genbank_files:
         print("Error: No GenBank files found")
         print("Supported extensions: .gb, .gbk, .genbank, .gbff")
+        print("\nUsage:")
+        print("  Run without arguments to use current directory:")
+        print("    python module9_diversity_analysis.py")
+        print("  Or provide explicit paths:")
+        print("    python module9_diversity_analysis.py <genbank_file1> <genbank_file2> ...")
+        print("    python module9_diversity_analysis.py <directory>")
+        print("    python module9_diversity_analysis.py *.gb")
         sys.exit(1)
     
     print(f"Processing {len(genbank_files)} GenBank files...")
@@ -824,8 +881,8 @@ def main():
         for region_type, name, pi, valid_sites, length in noncoding_results:
             if region_type == "Intron":
                 pos = intron_positions.get(name, 999999)
-                # Format intron names for display: "trnK-UUU_intron1" -> "trnK intron"
-                display_name = name.replace("_intron", " intron")
+                # Intron names are already properly formatted (e.g., "trnK-UUU intron" or "ycf3 intron I")
+                display_name = name
             else:  # Intergenic
                 pos = intergenic_positions.get(name, 999999)
                 display_name = name

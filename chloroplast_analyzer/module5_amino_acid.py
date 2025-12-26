@@ -9,9 +9,9 @@ This script performs comprehensive amino acid composition analysis on GenBank fi
 3. Generating individual composition reports for each genome
 4. Creating a merged comparative analysis across all genomes
 
-Author: Bioinformatics Analysis Tool
+Author: Abdullah
 Version: 1.0
-Date: 2025
+Date: December 2025
 
 Dependencies:
     - biopython (Bio)
@@ -20,11 +20,12 @@ Dependencies:
 
 Usage:
     Place GenBank files (.gb, .gbf, .gbk) in the working directory and run:
-    python amino_acid_analysis.py
+    python module5_amino_acid.py
 
 Output:
-    - Individual composition files: [genome_name]_AminoAcid.xlsx
-    - Merged analysis: Merged_AminoAcid_Analysis.xlsx
+    Module5_Amino_Acid_Analysis/
+        - Individual composition files: [genome_name]_AminoAcid.xlsx
+        - Merged analysis: Complete_Amino_Acid_Analysis.xlsx
 """
 
 import os
@@ -43,6 +44,13 @@ except ImportError as e:
     print("Please install required packages using:")
     print("pip install biopython pandas openpyxl")
     sys.exit(1)
+
+
+# ============================================================================
+# CONSTANTS
+# ============================================================================
+
+OUTPUT_FOLDER = "Module5_Amino_Acid_Analysis"
 
 
 # ============================================================================
@@ -218,7 +226,7 @@ def analyze_amino_acid_composition(amino_acid_sequence: str) -> pd.DataFrame:
 # FILE PROCESSING
 # ============================================================================
 
-def process_single_genbank_file(file_path: str) -> Tuple[str, pd.DataFrame]:
+def process_single_genbank_file(file_path: str, output_folder: str) -> Tuple[str, pd.DataFrame]:
     """
     Process a single GenBank file and calculate amino acid composition.
     
@@ -226,23 +234,25 @@ def process_single_genbank_file(file_path: str) -> Tuple[str, pd.DataFrame]:
     -----------
     file_path : str
         Path to the GenBank file
+    output_folder : str
+        Directory to save output files
         
     Returns:
     --------
     Tuple[str, pd.DataFrame]
         Tuple of (output filename, composition DataFrame)
     """
-    print(f"\nProcessing: {file_path}")
+    print(f"\nProcessing: {os.path.basename(file_path)}")
     
     # Get organism name
     organism_name = get_organism_name(file_path)
-    print(f"  - Organism: {organism_name}")
+    print(f"  - Organism: {organism_name.replace('_', ' ')}")
     
     # Extract and translate CDS
     amino_acid_sequence, cds_count = extract_and_translate_cds(file_path)
     
     if not amino_acid_sequence:
-        print(f"  WARNING: No amino acid sequences found in {file_path}")
+        print(f"  WARNING: No amino acid sequences found in {os.path.basename(file_path)}")
         return None, None
     
     # Analyze composition
@@ -253,7 +263,7 @@ def process_single_genbank_file(file_path: str) -> Tuple[str, pd.DataFrame]:
     
     # Generate output filename
     base_name = Path(file_path).stem
-    output_file = f"{base_name}_AminoAcid.xlsx"
+    output_file = os.path.join(output_folder, f"{base_name}_AminoAcid.xlsx")
     
     # Save individual composition file
     with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
@@ -278,7 +288,7 @@ def process_single_genbank_file(file_path: str) -> Tuple[str, pd.DataFrame]:
         df_summary = pd.DataFrame(summary_data)
         df_summary.to_excel(writer, sheet_name='Summary', index=False)
     
-    print(f"  ✓ Saved: {output_file}")
+    print(f"  ✓ Saved: {os.path.basename(output_file)}")
     
     return output_file, df_composition
 
@@ -316,7 +326,7 @@ def find_genbank_files(directory: str = None) -> List[str]:
 # MERGE COMPOSITION FILES
 # ============================================================================
 
-def merge_amino_acid_files(aa_files: List[str], output_file: str = 'Merged_AminoAcid_Analysis.xlsx'):
+def merge_amino_acid_files(aa_files: List[str], output_file: str):
     """
     Merge individual amino acid composition files into a single comparative analysis file.
     
@@ -328,7 +338,7 @@ def merge_amino_acid_files(aa_files: List[str], output_file: str = 'Merged_Amino
     aa_files : List[str]
         List of amino acid composition Excel file paths to merge
     output_file : str
-        Name of the output merged file
+        Path for the output merged file
     """
     print(f"\n{'='*70}")
     print("MERGING AMINO ACID COMPOSITION FILES")
@@ -343,21 +353,21 @@ def merge_amino_acid_files(aa_files: List[str], output_file: str = 'Merged_Amino
     genome_names = []
     
     for filename in aa_files:
-        print(f"  - Adding: {filename}")
+        print(f"  - Adding: {os.path.basename(filename)}")
         
         try:
             # Read the composition file
             data = pd.read_excel(filename, sheet_name='AA_Composition')
             
-            # Get the genome name from filename
-            genome_name = Path(filename).stem.replace('_AminoAcid', '')
+            # Get the genome name from filename and replace underscores with spaces
+            genome_name = Path(filename).stem.replace('_AminoAcid', '').replace('_', ' ')
             genome_names.append(genome_name)
             
             # Store the data
             all_data.append(data)
             
         except Exception as e:
-            print(f"  WARNING: Error reading {filename}: {e}")
+            print(f"  WARNING: Error reading {os.path.basename(filename)}: {e}")
             continue
     
     if not all_data:
@@ -377,11 +387,11 @@ def merge_amino_acid_files(aa_files: List[str], output_file: str = 'Merged_Amino
     
     # Save merged file with proper formatting
     with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
-        merged_data.to_excel(writer, sheet_name='Merged_AA_Composition', index=False)
+        merged_data.to_excel(writer, sheet_name='Amino_Acid_Composition', index=False)
         
         # Get the worksheet to apply formatting
         workbook = writer.book
-        worksheet = writer.sheets['Merged_AA_Composition']
+        worksheet = writer.sheets['Amino_Acid_Composition']
         
         # Apply formatting for publication quality
         from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
@@ -433,12 +443,12 @@ def merge_amino_acid_files(aa_files: List[str], output_file: str = 'Merged_Amino
         # Set width for genome columns
         for col_idx in range(2, len(genome_names) + 2):
             col_letter = worksheet.cell(row=1, column=col_idx).column_letter
-            worksheet.column_dimensions[col_letter].width = 14
+            worksheet.column_dimensions[col_letter].width = 20
         
         # Freeze panes (freeze first row and first column)
         worksheet.freeze_panes = 'B2'
     
-    print(f"\n  ✓ Merged analysis saved: {output_file}")
+    print(f"\n  ✓ Merged analysis saved: {os.path.basename(output_file)}")
     print(f"  - Total genomes compared: {len(genome_names)}")
     print(f"  - Total amino acids: {len(merged_data)}")
     print(f"  - Format: Publication-ready with italic species names")
@@ -453,17 +463,22 @@ def main():
     Main pipeline execution function.
     
     Workflow:
-    1. Find all GenBank files in working directory
-    2. Process each file to calculate amino acid composition
-    3. Merge all composition files into comparative analysis
+    1. Create output folder
+    2. Find all GenBank files in working directory
+    3. Process each file to calculate amino acid composition
+    4. Merge all composition files into comparative analysis
     """
     print(f"\n{'='*70}")
-    print("AMINO ACID COMPOSITION ANALYSIS PIPELINE")
+    print("MODULE 5: AMINO ACID COMPOSITION ANALYSIS")
     print(f"{'='*70}")
     
     # Get working directory
     working_dir = os.getcwd()
     print(f"\nWorking directory: {working_dir}")
+    
+    # Create output folder
+    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+    print(f"Output folder: {OUTPUT_FOLDER}/")
     
     # Find GenBank files
     genbank_files = find_genbank_files(working_dir)
@@ -485,16 +500,17 @@ def main():
     aa_files = []
     for gb_file in genbank_files:
         try:
-            output_file, _ = process_single_genbank_file(gb_file)
+            output_file, _ = process_single_genbank_file(gb_file, OUTPUT_FOLDER)
             if output_file:
                 aa_files.append(output_file)
         except Exception as e:
-            print(f"  ❌ ERROR processing {gb_file}: {e}")
+            print(f"  ❌ ERROR processing {os.path.basename(gb_file)}: {e}")
             continue
     
     # Merge composition files
     if aa_files:
-        merge_amino_acid_files(aa_files)
+        merged_file = os.path.join(OUTPUT_FOLDER, "Complete_Amino_Acid_Analysis.xlsx")
+        merge_amino_acid_files(aa_files, merged_file)
     
     # Summary
     print(f"\n{'='*70}")
@@ -502,8 +518,9 @@ def main():
     print(f"{'='*70}")
     print(f"✓ Successfully processed: {len(aa_files)} genome(s)")
     print(f"✓ Individual composition files: {len(aa_files)}")
-    print(f"✓ Merged analysis file: Merged_AminoAcid_Analysis.xlsx")
-    print(f"\nAll output files saved in: {working_dir}")
+    if aa_files:
+        print(f"✓ Merged analysis file: Complete_Amino_Acid_Analysis.xlsx")
+    print(f"\nAll output files saved in: {os.path.join(working_dir, OUTPUT_FOLDER)}/")
     print(f"{'='*70}\n")
 
 

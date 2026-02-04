@@ -28,6 +28,8 @@ share/python-wheels/
 MANIFEST
 
 # PyInstaller
+#  Usually these files are written by a python script from a template
+#  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
 
@@ -83,9 +85,13 @@ ipython_config.py
 .python-version
 
 # pipenv
-Pipfile.lock
+#   According to pypa/pipenv#598, it is recommended to include Pipfile.lock in version control.
+#   However, in case of collaboration, if having platform-specific dependencies or dependencies
+#   having no cross-platform support, pipenv may install dependencies that don't work, or not
+#   install all needed dependencies.
+#Pipfile.lock
 
-# PEP 582
+# PEP 582; used by e.g. github.com/DDavid-OConnor/pyflow
 __pypackages__/
 
 # Celery stuff
@@ -122,28 +128,100 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# IDE
+# Bioinformatics specific files
+*.fasta.fai
+*.bam
+*.bai
+*.sam
+*.bcf
+*.vcf.gz
+*.vcf.gz.tbi
+*.fastq.gz
+*.fq.gz
+
+# CGAS specific output directories
+Module*_*/
+results/
+output/
+temp/
+tmp/
+
+# CGAS temporary files
+*.tmp
+*.temp
+.cgas_outgroups_temp/
+get_organelle_output/
+blastdb/
+alignments/
+trees/
+
+# R specific files
+.Rhistory
+.RData
+.Ruserdata
+.Rproj
+
+# MAFFT temporary files
+*.mafft.*
+*.treefile
+
+# IQ-TREE files
+*.iqtree
+*.log
+*.ckp.gz
+
+# MACSE files
+*.macse.*
+
+# GetOrganelle files
+get_organelle_output/
+*_fastp.html
+*_fastp.json
+
+# PGA files
+PGA_output/
+*.blast
+*.blast.xml
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+.project
+.pydevproject
+.settings/
 
-# OS
-.DS_Store
-Thumbs.db
+# Documentation build
+docs/build/
+docs/source/_build/
 
-# Project specific
-*.gb
-*.gbk
-*.genbank
-*.gbff
-*.fasta
-*.fa
-*.fna
-*.fas
-*.xlsx
-*.docx
-Module8_SSR_Analysis_*/
-Module9_Nucleotide_Diversity/
+# Example data that users shouldn't commit
+examples/data/
+examples/results/
 test_data/
+test_results/
+
+# Large files that should be in releases or LFS
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# Keep these files (uncomment if needed)
+# !requirements.txt
+# !README.md
+# !LICENSE
+# !MANIFEST.in
+# !setup.py
+# !pyproject.toml

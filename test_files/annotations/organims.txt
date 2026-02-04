@@ -1,0 +1,3 @@
+accession	organism
+SRR18086674	Buxus austroyunnanensis
+SRR7121736	Buxus harlandii

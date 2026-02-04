@@ -1,79 +1,104 @@
 #!/usr/bin/env python3
-"""
-Setup configuration for Chloroplast Genome Analysis Suite (CGAS)
-"""
-
 from setuptools import setup, find_packages
 from pathlib import Path
 
-# Read the README file
-this_directory = Path(__file__).parent
-long_description = (this_directory / "README.md").read_text(encoding='utf-8')
+# ---------------------------------------------------------------------
+# Basic package metadata
+# ---------------------------------------------------------------------
+PACKAGE_NAME = "cgas"
+VERSION = "1.0.1"
+DESCRIPTION = "CGAS - Chloroplast Genome Analysis Suite (Modules 1-14)"
 
+# Long description from README
+this_dir = Path(__file__).parent
+long_description = (this_dir / "README.md").read_text(encoding="utf-8")
+
+# ---------------------------------------------------------------------
+# Setup configuration
+# ---------------------------------------------------------------------
 setup(
-    name='chloroplast-analyzer',
-    version='1.0.0',
-    author='Abdullah',
-    author_email='your.email@example.com',
-    description='Chloroplast Genome Analysis Suite (CGAS) - A comprehensive toolkit for analyzing chloroplast genomes',
+    name=PACKAGE_NAME,
+    version=VERSION,
+    author="Your Name",
+    author_email="your.email@example.com",
+    description=DESCRIPTION,
     long_description=long_description,
-    long_description_content_type='text/markdown',
-    url='https://github.com/abdullah30/Chloroplast-Genome-Analysis-Suite-CGAS',
+    long_description_content_type="text/markdown",
+    url="https://github.com/yourusername/CGAS",
+    license="MIT",
+
+    # -----------------------------------------------------------------
+    # Package discovery
+    # -----------------------------------------------------------------
     packages=find_packages(),
-    classifiers=[
-        'Development Status :: 4 - Beta',
-        'Intended Audience :: Science/Research',
-        'Topic :: Scientific/Engineering :: Bio-Informatics',
-        'License :: OSI Approved :: MIT License',
-        'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.7',
-        'Programming Language :: Python :: 3.8',
-        'Programming Language :: Python :: 3.9',
-        'Programming Language :: Python :: 3.10',
-        'Programming Language :: Python :: 3.11',
-    ],
-    python_requires='>=3.7',
-    install_requires=[
-        'biopython>=1.79',
-        'pandas>=1.3.0',
-        'openpyxl>=3.0.9',
-        'numpy>=1.21.0',
-        'python-docx>=0.8.11',
-    ],
-    extras_require={
-        'dev': [
-            'pytest>=6.0',
-            'pytest-cov>=2.12',
-            'black>=21.0',
-            'flake8>=3.9',
-        ],
-    },
-    entry_points={
-        'console_scripts': [
-            # Main unified command - CGAS
-            'cgas=chloroplast_analyzer.cli:main',
-            'cgas-analyze=chloroplast_analyzer.cli:main',
-            
-            # Individual module commands
-            'cgas-count=chloroplast_analyzer.cli:module1',
-            'cgas-table=chloroplast_analyzer.cli:module2',
-            'cgas-compare=chloroplast_analyzer.cli:module3',
-            'cgas-codon=chloroplast_analyzer.cli:module4',
-            'cgas-aa=chloroplast_analyzer.cli:module5',
-            'cgas-snp=chloroplast_analyzer.cli:module6',
-            'cgas-intron=chloroplast_analyzer.cli:module7',
-            'cgas-ssr=chloroplast_analyzer.cli:module8',
-            'cgas-diversity=chloroplast_analyzer.cli:module9',
-        ],
-    },
     include_package_data=True,
-    package_data={
-        'chloroplast_analyzer': ['data/*'],
+
+    # -----------------------------------------------------------------
+    # Python requirements
+    # -----------------------------------------------------------------
+    python_requires=">=3.8",
+
+    # -----------------------------------------------------------------
+    # Runtime Python dependencies
+    # -----------------------------------------------------------------
+    install_requires=[
+        "biopython>=1.80",
+        "pandas>=1.5",
+        "numpy>=1.21",
+        "openpyxl",
+        "python-docx",
+    ],
+
+    # -----------------------------------------------------------------
+    # Console entry points
+    # -----------------------------------------------------------------
+    entry_points={
+        "console_scripts": [
+            # Main unified CLI
+            "cgas=cgas.cli:main",
+
+            # Individual module commands
+            "cgas-assembly=cgas.cli:assembly",
+            "cgas-annotate=cgas.cli:annotate",
+            "cgas-compare=cgas.cli:compare",
+            "cgas-convert=cgas.cli:convert",
+            "cgas-gene-compare=cgas.cli:gene_compare",
+            "cgas-gene-table=cgas.cli:gene_table",
+            "cgas-genome-compare=cgas.cli:genome_compare",
+            "cgas-codon=cgas.cli:codon",
+            "cgas-amino=cgas.cli:amino",
+            "cgas-snp=cgas.cli:snp",
+            "cgas-intron=cgas.cli:intron",
+            "cgas-ssr=cgas.cli:ssr",
+            "cgas-diversity=cgas.cli:diversity",
+            "cgas-phylogeny=cgas.cli:phylogeny",
+        ]
     },
-    keywords='chloroplast genome bioinformatics genomics analysis plastid CGAS',
-    project_urls={
-        'Bug Reports': 'https://github.com/abdullah30/Chloroplast-Genome-Analysis-Suite-CGAS/issues',
-        'Source': 'https://github.com/abdullah30/Chloroplast-Genome-Analysis-Suite-CGAS',
-        'Documentation': 'https://github.com/abdullah30/Chloroplast-Genome-Analysis-Suite-CGAS/blob/main/README.md',
-    },
+
+    # -----------------------------------------------------------------
+    # Classifiers
+    # -----------------------------------------------------------------
+    classifiers=[
+        "Development Status :: 4 - Beta",
+        "Intended Audience :: Science/Research",
+        "Topic :: Scientific/Engineering :: Bio-Informatics",
+        "License :: OSI Approved :: MIT License",
+        "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3.8",
+        "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
+        "Operating System :: OS Independent",
+    ],
+
+    # -----------------------------------------------------------------
+    # Keywords
+    # -----------------------------------------------------------------
+    keywords=[
+        "chloroplast",
+        "plastome",
+        "phylogenomics",
+        "comparative genomics",
+        "bioinformatics",
+        "plant genomics",
+    ],
 )

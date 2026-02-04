@@ -1,0 +1,163 @@
+# ============================================================================
+# CGAS v1.0.1 - Complete Conda Environment
+# ============================================================================
+#
+# This environment includes all tools needed for CGAS modules 1-14
+#
+# Installation:
+#   conda env create -f environment.yml
+#   conda activate cgas
+#   pip install -e .
+#
+# Verify installation:
+#   cgas --version
+#   cgas --list
+#
+# System Requirements:
+#   - Disk space: ~3-4 GB
+#   - RAM: 8+ GB recommended (4+ GB minimum)
+#   - OS: Linux, macOS, or Windows (WSL2)
+#
+# Tools Included:
+#   Assembly (Module 1):
+#     - fastp: Read quality control
+#     - GetOrganelle: Chloroplast genome assembly
+#     - BWA: Read alignment
+#     - samtools: BAM file handling
+#
+#   Annotation (Module 2):
+#     - BLAST+: Sequence similarity search
+#     - Note: PGA must be installed separately
+#       Download from: https://github.com/quxiaojian/PGA
+#
+#   Alignment & Phylogeny (Modules 13-14):
+#     - MAFFT: Multiple sequence alignment
+#     - MACSE: Codon-aware CDS alignment (requires Java)
+#     - IQ-TREE: Maximum-likelihood phylogenetic inference
+#
+#   Selection Analysis:
+#     - HyPhy: Molecular evolution and selection pressure analysis
+#
+#   Visualization (Modules 8, 9, 12, 13):
+#     - R with comprehensive package suite for plotting
+#     - Includes: ggplot2, dplyr, tidyr, cowplot, pheatmap, seqinr, etc.
+#
+# Optional: For faster installation, use mamba:
+#   conda install -n base -c conda-forge mamba
+#   mamba env create -f environment.yml
+#
+# Troubleshooting:
+#   - If installation is slow, use mamba instead of conda
+#   - If out of memory, close other applications
+#   - For low-RAM systems, use environment-minimal.yml instead
+#
+# ============================================================================
+
+name: cgas
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+
+dependencies:
+  # ========================================================================
+  # Python and Core Packages
+  # ========================================================================
+  
+  # Python version (3.9 is optimal for compatibility)
+  - python=3.9
+  
+  # Core Python packages
+  - pip
+  - setuptools
+  - wheel
+  
+  # ========================================================================
+  # Scientific Python Packages
+  # ========================================================================
+  
+  # Scientific computing
+  - numpy>=1.24,<1.26
+  - pandas>=2.0,<2.2
+  - matplotlib>=3.4.0
+  - seaborn>=0.11.0
+  
+  # Bioinformatics
+  - biopython>=1.79
+  
+  # Office file handling
+  - openpyxl>=3.1
+  
+  # ========================================================================
+  # Bioinformatics Tools - Assembly & QC (Module 1)
+  # ========================================================================
+  
+  - fastp>=0.23.0          # Read quality control and filtering
+  - getorganelle>=1.7.0    # Chloroplast genome assembly
+  - bwa>=0.7.17            # Read alignment to reference
+  - samtools>=1.15         # SAM/BAM file manipulation
+  
+  # ========================================================================
+  # Bioinformatics Tools - Annotation (Module 2)
+  # ========================================================================
+  
+  - blast>=2.12.0          # Sequence similarity search
+  # Note: PGA must be installed separately from https://github.com/quxiaojian/PGA
+  
+  # ========================================================================
+  # Bioinformatics Tools - Alignment & Phylogeny (Modules 13-14)
+  # ========================================================================
+  
+  - mafft>=7.490           # Multiple sequence alignment
+  - macse>=2.06            # Codon-aware alignment for coding sequences
+  - iqtree>=2.2.0          # Maximum-likelihood phylogenetic inference
+  - openjdk>=11            # Java runtime (required for MACSE)
+  
+  # ========================================================================
+  # Bioinformatics Tools - Selection & Evolution Analysis
+  # ========================================================================
+  
+  - hyphy>=2.5.0           # Molecular evolution and selection analysis
+  
+  # ========================================================================
+  # Optional Phylogenetic Tools
+  # ========================================================================
+  
+  - fasttree>=2.1.11       # Fast approximate-ML phylogenetic trees
+  
+  # ========================================================================
+  # R and Visualization Packages (Modules 8, 9, 12, 13)
+  # ========================================================================
+  
+  # R base
+  - r-base>=4.0.0
+  
+  # Core visualization packages
+  - r-ggplot2              # Main plotting framework
+  - r-reshape2             # Data reshaping for plotting
+  - r-pheatmap             # Heatmap generation
+  - r-rcolorbrewer         # Color palettes for plots
+  
+  # Data manipulation packages
+  - r-dplyr                # Data manipulation (select, mutate, group_by, summarize)
+  - r-tidyr                # Data tidying (pivot_longer, pivot_wider, separate)
+  - r-zoo                  # Time series and missing value handling (na.locf)
+  - r-readr                # Fast data reading (read_delim, read_csv, read_tsv)
+  
+  # Plot enhancement and combination
+  - r-cowplot              # Combining ggplot plots (plot_grid, draw_plot)
+  - r-scales               # Formatting plot scales and labels
+  - r-gridextra            # Additional grid plotting utilities (grid.arrange)
+  - r-ggrepel              # Smart text label positioning (geom_text_repel)
+  - r-patchwork            # Combining plots with operators (+, /, |)
+  
+  # Module-specific packages
+  - r-seqinr               # Module 8: Sequence analysis and codon usage (RSCU)
+  - r-writexl              # Excel file writing for output tables
+  
+  # ========================================================================
+  # Python Packages via pip (not available in conda)
+  # ========================================================================
+  
+  - pip:
+    - python-docx>=0.8.11  # Microsoft Word document generation

@@ -1,0 +1,107 @@
+name: cgas-minimal
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+
+dependencies:
+  # Python 3.9 - Optimal for low-RAM systems
+  - python=3.9
+  
+  # Minimal core packages
+  - pip
+  - setuptools
+  
+  # Essential Python packages only
+  - numpy>=1.24,<1.26
+  - pandas>=2.0,<2.2
+  - biopython>=1.79
+  - openpyxl>=3.1
+  
+  # Essential alignment tool (required for modules 13-14)
+  - mafft>=7.490
+  # Optional: IQ-TREE for phylogeny (can install later if needed)
+  - iqtree>=2.2.0
+  # Bioinformatics tools - Annotation (Module 2)
+  - blast>=2.12.0
+   
+  # Python packages via pip
+  - pip:
+  - python-docx>=0.8.11
+ # R 4.3 + essential packages
+  - r-base=4.3
+  - r-ggplot2
+  - r-ape
+  - r-dplyr
+  - r-tidyr
+
+# ============================================================================
+# CGAS v1.0.1 - Minimal Environment for Low-RAM Systems
+# ============================================================================
+#
+# This minimal environment is designed for systems with limited RAM (4-8 GB)
+#
+# Installation:
+#   conda env create -f environment-minimal.yml
+#   conda activate cgas-minimal
+#   pip install -e .
+#
+# What's Included:
+#   - Python 3.9 and essential packages
+#   - MAFFT (required for modules 13-14)
+#   - Basic Python visualization libraries
+#
+# What's NOT Included (install separately if needed):
+#   - Assembly tools (fastp, GetOrganelle) - for Module 1
+#   - Annotation tools (BLAST) - for Module 2
+#   - MACSE - for codon-aware alignment in Module 14
+#   - IQ-TREE - for phylogenetic inference in Module 14
+#   - HyPhy - for selection analysis
+#   - R packages - for enhanced visualizations
+#
+# Install Additional Tools As Needed:
+#
+#   For Assembly (Module 1):
+#     conda install -c bioconda fastp getorganelle bwa samtools
+#
+#   For Annotation (Module 2):
+#     conda install -c bioconda blast
+#     # Download PGA separately from: https://github.com/quxiaofan/PGA
+#
+#   For Phylogeny (Module 14):
+#     conda install -c bioconda iqtree macse
+#     # MACSE requires Java: conda install -c conda-forge openjdk
+#
+#   For Selection Analysis:
+#     conda install -c bioconda hyphy
+#
+#   For Enhanced Visualizations (Modules 8, 9, 12, 13):
+#     conda install -c conda-forge r-base r-ggplot2 r-reshape2 r-pheatmap \
+#       r-dplyr r-tidyr r-cowplot r-scales r-zoo r-readr r-rcolorbrewer
+#
+# Modules You Can Run Immediately:
+#   - Module 3: Gene comparison
+#   - Module 4: Format conversion
+#   - Module 5: Gene comparative analysis
+#   - Module 6: Gene tables
+#   - Module 7: Genome comparative analysis
+#   - Module 8-9: Codon/amino acid analysis (without R plots)
+#   - Module 10: SNP analysis
+#   - Module 11: Intron analysis
+#   - Module 12: SSR analysis (without R plots)
+#   - Module 13-14: Diversity/phylogeny (basic, install IQ-TREE for trees)
+#
+# System Requirements:
+#   - Disk space: ~500 MB
+#   - RAM: 4+ GB minimum
+#   - OS: Linux, macOS, or Windows (WSL2)
+#
+# Memory-Saving Tips:
+#   - Use fewer threads: cgas assembly -t 2
+#   - Process samples individually
+#   - Close other applications during analysis
+#   - Use mamba for faster, lower-memory installation:
+#       conda install -n base -c conda-forge mamba
+#       mamba env create -f environment-minimal.yml
+#
+# ============================================================================

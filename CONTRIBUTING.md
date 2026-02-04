@@ -30,7 +30,7 @@ We are committed to providing a welcoming and inspiring community for all. Pleas
 
 ### Prerequisites
 
-- Python 3.7 or higher
+- Python 3.9 or higher
 - Git
 - Familiarity with BioPython
 - Basic understanding of genomics concepts

@@ -1,36 +1,58 @@
 [build-system]
-requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
+requires = ["setuptools>=61", "wheel", "setuptools_scm[toml]>=6.2"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "chloroplast-analyzer"
-version = "1.0.0"
-description = "Chloroplast Genome Analysis Suite (CGAS) - A comprehensive toolkit for analyzing chloroplast genomes"
+name = "chloroplast-genome-analysis-suite"
+version = "1.0.1"
+description = "A comprehensive toolkit for analyzing chloroplast genomes"
 readme = "README.md"
-requires-python = ">=3.7"
 license = {text = "MIT"}
 authors = [
-    {name = "Abdullah", email = "your.email@example.com"}
+    {name = "Abdullah", email = "your.email@example.com"},
 ]
-keywords = ["chloroplast", "genome", "bioinformatics", "genomics", "analysis", "plastid", "CGAS"]
+maintainers = [
+    {name = "Abdullah", email = "your.email@example.com"},
+]
+keywords = [
+    "bioinformatics",
+    "chloroplast",
+    "genomics",
+    "genome-analysis",
+    "plastid",
+    "phylogeny",
+    "comparative-genomics",
+    "molecular-biology",
+    "evolution",
+    "botany",
+    "plant-genomics",
+]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
     "Topic :: Scientific/Engineering :: Bio-Informatics",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.7",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3 :: Only",
+    "Operating System :: OS Independent",
+    "Natural Language :: English",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Software Development :: Libraries :: Python Modules",
 ]
+requires-python = ">=3.9"
 dependencies = [
     "biopython>=1.79",
     "pandas>=1.3.0",
-    "openpyxl>=3.0.9",
     "numpy>=1.21.0",
+    "openpyxl>=3.0.0",
     "python-docx>=0.8.11",
+    "matplotlib>=3.4.0",
+    "seaborn>=0.11.0",
 ]
 
 [project.optional-dependencies]
@@ -39,29 +61,89 @@ dev = [
     "pytest-cov>=2.12",
     "black>=21.0",
     "flake8>=3.9",
+    "mypy>=0.910",
+    "sphinx>=4.0",
+    "sphinx-rtd-theme>=0.5",
+    "twine>=3.4",
+    "wheel>=0.36",
+    "build>=0.3.0",
+]
+test = [
+    "pytest>=6.0",
+    "pytest-cov>=2.12",
+    "pytest-mock>=3.6",
+    "coverage>=5.5",
+]
+docs = [
+    "sphinx>=4.0",
+    "sphinx-rtd-theme>=0.5",
+    "myst-parser>=0.15",
+    "sphinx-autodoc-typehints>=1.12",
+]
+visualization = [
+    "plotly>=5.0",
+    "bokeh>=2.4",
+    "altair>=4.1",
+]
+full = [
+    "plotly>=5.0",
+    "bokeh>=2.4",
+    "altair>=4.1",
+    "jupyter>=1.0",
+    "ipykernel>=6.0",
+    "notebook>=6.4",
 ]
 
 [project.urls]
 Homepage = "https://github.com/abdullah30/Chloroplast-Genome-Analysis-Suite-CGAS"
-Documentation = "https://github.com/abdullah30/Chloroplast-Genome-Analysis-Suite-CGAS/blob/main/README.md"
+Documentation = "https://github.com/abdullah30/Chloroplast-Genome-Analysis-Suite-CGAS/blob/main/docs/README.md"
 Repository = "https://github.com/abdullah30/Chloroplast-Genome-Analysis-Suite-CGAS"
-"Bug Tracker" = "https://github.com/abdullah30/Chloroplast-Genome-Analysis-Suite-CGAS/issues"
+"Bug Reports" = "https://github.com/abdullah30/Chloroplast-Genome-Analysis-Suite-CGAS/issues"
 
 [project.scripts]
-cgas = "chloroplast_analyzer.cli:main"
-cgas-analyze = "chloroplast_analyzer.cli:main"
-cgas-count = "chloroplast_analyzer.cli:module1"
-cgas-table = "chloroplast_analyzer.cli:module2"
-cgas-compare = "chloroplast_analyzer.cli:module3"
-cgas-codon = "chloroplast_analyzer.cli:module4"
-cgas-aa = "chloroplast_analyzer.cli:module5"
-cgas-snp = "chloroplast_analyzer.cli:module6"
-cgas-intron = "chloroplast_analyzer.cli:module7"
-cgas-ssr = "chloroplast_analyzer.cli:module8"
-cgas-diversity = "chloroplast_analyzer.cli:module9"
+cgas = "cgas.cli:main"
+"cgas-assembly" = "cgas.cli:assembly"
+"cgas-annotate" = "cgas.cli:annotate"
+"cgas-compare" = "cgas.cli:compare"
+"cgas-convert" = "cgas.cli:convert"
+"cgas-gene-compare" = "cgas.cli:gene_compare"
+"cgas-gene-table" = "cgas.cli:gene_table"
+"cgas-genome-compare" = "cgas.cli:genome_compare"
+"cgas-codon" = "cgas.cli:codon"
+"cgas-amino" = "cgas.cli:amino"
+"cgas-snp" = "cgas.cli:snp"
+"cgas-intron" = "cgas.cli:intron"
+"cgas-ssr" = "cgas.cli:ssr"
+"cgas-diversity" = "cgas.cli:diversity"
+"cgas-phylogeny" = "cgas.cli:phylogeny"
 
 [tool.setuptools]
-packages = ["chloroplast_analyzer"]
+packages = ["cgas"]
 
 [tool.setuptools.package-data]
-chloroplast_analyzer = ["data/*"]
+cgas = ["data/*", "templates/*", "scripts/*"]
+
+[tool.black]
+line-length = 100
+target-version = ['py39']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q --strict-markers"
+testpaths = [
+    "tests",
+]

@@ -1,9 +1,26 @@
 #!/usr/bin/env python3
 """
-CGAS Module 13: Comprehensive Nucleotide Diversity Analysis (IMPROVED)
+CGAS Module 13: Comprehensive Nucleotide Diversity Analysis (CORRECTED)
 ========================================================================
 
-IMPROVEMENTS IN THIS VERSION:
+CORRECTIONS IN THIS VERSION (per module13_correction_protocol):
+1. Genes are now grouped by gene name ONLY (not by name+position).
+   This collapses IRa/IRb duplicate copies so each gene is counted
+   once per species, eliminating IR-duplication bias in π values.
+2. Reverse-strand sequences (strand = -1) are reverse-complemented
+   before alignment so all orientations are comparable.
+3. Pseudogenes are detected via the 'pseudo'/'pseudogene' qualifier.
+4. Pseudogenes are EXCLUDED from gene diversity calculations but still
+   retained in the feature list so intergenic boundaries are preserved.
+5. Intergenic spacer names are formed by sorting the two flanking gene
+   names alphabetically (e.g., both "trnR-trnN" and "trnN-trnR" become
+   the canonical "trnN-trnR"), deduplicating IR spacer pairs.
+6. Intron names are keyed by gene name rather than coordinates, so IRa
+   and IRb copies of an intron collapse to a single entry.
+7. Genomic coordinates are used only as secondary information; biological
+   identity (gene name, spacer pair, intron gene) is the primary key.
+
+PREVIOUS IMPROVEMENTS (v2.0):
 - Nucleotide diversity values are ROUNDED to 1 decimal place (0.0, 0.1, 0.2, 0.3, etc.)
 - Region markers (LSC/SSC/IR) are DISABLED as they were not working with clarity
 - All other functionality remains EXACTLY the same
@@ -23,8 +40,8 @@ Key Features:
    - Panel B: Non-coding regions (introns + intergenic spacers) plot
 
 Author: Abdullah
-Version: 2.0 (Module 13 - CGAS Integration)
-Date: January 2026
+Version: 3.0 (Module 13 - IR-corrected)
+Date: March 2026
 
 Dependencies:
     Python: biopython, numpy
@@ -194,321 +211,377 @@ def normalize_gene_name(gene_name):
     # For other genes, return as is (keep original case)
     return gene_name
 
+def get_organism_label(record):
+    """
+    Return a clean species label from a GenBank record.
+    Uses the organism annotation (e.g. 'Gossypium arboreum') with spaces
+    replaced by underscores.  Falls back to the accession if not present.
+    This label is used as the FASTA sequence ID so alignments are labelled
+    by species, not by accession number.
+    """
+    organism = record.annotations.get("organism", "")
+    if not organism:
+        for feature in record.features:
+            if feature.type == "source" and "organism" in feature.qualifiers:
+                organism = feature.qualifiers["organism"][0]
+                break
+    if organism:
+        # Replace spaces/special chars; keep it MAFFT-safe
+        label = re.sub(r"[^A-Za-z0-9_]", "_", organism).strip("_")
+        return label
+    return record.id
+
+
 def extract_features_from_genbank(genbank_files, output_dir):
     """
-    Extract genes, introns, and intergenic regions from multiple GenBank files.
-    Handles tRNA naming conventions, tracks strand direction, and normalizes names.
-    
-    Returns:
-        genes_dict: {gene_name: [SeqRecord1, SeqRecord2, ...]}
-        intron_dict: {intron_name: [SeqRecord1, SeqRecord2, ...]}
-        intergenic_dict: {spacer_name: [SeqRecord1, SeqRecord2, ...]}
-        ambiguous_genes: set of genes without clear identification
-        gene_without_anticodon: set of tRNA genes without anticodon information
-        synonym_mapping: dict showing which original names were mapped to standard names
+    Extract genes, introns, and intergenic spacers from multiple GenBank files.
+
+    Core guarantee
+    --------------
+    Every alignment file will contain EXACTLY ONE sequence per species for
+    each region.  If a region is absent or is a pseudogene in a species it
+    simply will not appear in that species' contribution — the region will
+    then have fewer than N sequences and will be noted in the report.
+
+    How IR duplication is prevented
+    --------------------------------
+    - Genes   : grouped by normalised gene name; the first (lowest-position)
+                copy is extracted; a (species_label, gene_name) guard blocks
+                any second copy.
+    - Introns : extracted from the same first copy; same (species_label,
+                intron_name) guard.
+    - Spacers : spacer name = sorted([gene1, gene2]) so IRa and IRb produce
+                the same key; a (species_label, spacer_name) guard keeps only
+                the first occurrence.
+
+    Orientation normalisation
+    -------------------------
+    All sequences are stored in the FORWARD (5'→3') orientation relative to
+    the gene / spacer as it appears in the LSC / forward-strand context:
+    - Genes   : Bio.SeqFeature.extract() already reverse-complements minus-
+                strand features automatically.
+    - Introns : the raw genomic slice is reverse-complemented when the host
+                gene is on the minus strand.
+    - Spacers : the raw genomic slice is reverse-complemented when BOTH
+                flanking genes are on the minus strand (i.e. the spacer is
+                in the IRb context).
+
+    Returns
+    -------
+    genes_dict, intron_dict, intergenic_dict,
+    ambiguous_genes, gene_without_anticodon, synonym_mapping
     """
-    genes_dict = defaultdict(list)
-    intron_dict = defaultdict(list)
-    intergenic_dict = defaultdict(list)
-    ambiguous_genes = set()
+    genes_dict       = defaultdict(list)
+    intron_dict      = defaultdict(list)
+    intergenic_dict  = defaultdict(list)
+    ambiguous_genes        = set()
     gene_without_anticodon = set()
-    synonym_mapping = defaultdict(set)
-    
+    synonym_mapping        = defaultdict(set)
+
+    # Per-species deduplication guards:
+    # {(species_label, region_name)} — one entry means "already stored".
+    seen_genes   = set()
+    seen_introns = set()
+    seen_spacers = set()
+
     for gb_file in genbank_files:
         print(f"Processing {gb_file}...")
-        
+
         for record in SeqIO.parse(gb_file, "genbank"):
-            organism_id = record.id
-            sequence = record.seq
-            
-            # Extract all relevant features
-            all_features = [f for f in record.features if f.type in ["gene", "CDS", "tRNA", "rRNA"]]
-            
-            # Group CDS/tRNA/rRNA features by gene name
+            sequence      = record.seq
+            # Use organism name as the sequence label (not accession)
+            species_label = get_organism_label(record)
+            print(f"  Species: {species_label}")
+
+            # ----------------------------------------------------------------
+            # Collect all coding/RNA features, sorted by start position.
+            # Keep "gene"-type features out — we only want CDS/tRNA/rRNA so
+            # we don't double-count.  Pseudogenes stay so they anchor spacers.
+            # ----------------------------------------------------------------
+            all_features = [
+                f for f in record.features
+                if f.type in ["CDS", "tRNA", "rRNA"]
+            ]
+            all_features.sort(key=lambda f: int(f.location.start))
+
+            # ----------------------------------------------------------------
+            # Build features_by_gene: normalised_name → [feature, ...]
+            # Grouping by name (not position) already merges IRa+IRb under
+            # one key per species.
+            # ----------------------------------------------------------------
             features_by_gene = defaultdict(list)
-            
+
             for feature in all_features:
-                if feature.type not in ["CDS", "tRNA", "rRNA"]:
-                    continue
-                
-                # Get gene name
-                gene_name = None
-                if "gene" in feature.qualifiers:
-                    gene_name = feature.qualifiers["gene"][0]
-                elif "product" in feature.qualifiers:
-                    gene_name = feature.qualifiers["product"][0]
-                elif "locus_tag" in feature.qualifiers:
-                    gene_name = feature.qualifiers["locus_tag"][0]
-                else:
-                    gene_name = f"unknown_{feature.location.start}"
-                    ambiguous_genes.add(gene_name)
-                
-                # Store original name
-                original_name = gene_name
-                
-                # Check if tRNA without anticodon
-                if gene_name.lower().startswith('trn'):
-                    has_anticodon_in_name = '-' in gene_name or '_' in gene_name or '(' in gene_name
-                    has_anticodon_qualifier = 'anticodon' in feature.qualifiers
-                    
-                    if not has_anticodon_in_name and not has_anticodon_qualifier:
-                        gene_without_anticodon.add(f"{gene_name} (in {organism_id} at position {feature.location.start}-{feature.location.end})")
-                
-                # Normalize gene name
-                normalized_name = normalize_gene_name(gene_name)
-                
-                # Track synonyms
-                if original_name != normalized_name:
-                    synonym_mapping[normalized_name].add(original_name)
-                
-                # Group by normalized gene name and position (to handle IR copies)
-                # Use position as part of key to keep IR copies separate
-                key = (normalized_name, feature.location.start)
-                features_by_gene[key].append(feature)
-            
-            # Now process each gene group
-            for (gene_name, gene_start), gene_features in features_by_gene.items():
-                # Extract gene sequence from the first feature (they should all be the same gene)
-                first_feature = gene_features[0]
-                gene_seq = first_feature.location.extract(sequence)
-                strand = first_feature.location.strand
-                
-                # Create unique ID based on position to distinguish IR copies
-                unique_id = f"{organism_id}_pos{gene_start}"
-                
-                seq_record = SeqRecord(
-                    gene_seq,
-                    id=unique_id,
-                    description=f"{organism_id}_{gene_name}"
+                raw_name = (
+                    feature.qualifiers.get("gene",    [None])[0] or
+                    feature.qualifiers.get("product", [None])[0] or
+                    feature.qualifiers.get("locus_tag",[None])[0]
                 )
-                
-                genes_dict[gene_name].append(seq_record)
-                
-                # ========================================
-                # Intron extraction logic
-                # ========================================
-                # Combine all exon parts from all features for this gene
-                # (important for genes split across multiple CDS features)
-                exon_parts = []
-                
-                for feature in gene_features:
-                    if hasattr(feature.location, "parts"):
-                        exon_parts.extend(feature.location.parts)
-                    else:
-                        exon_parts.append(feature.location)
-                
-                # Sort exons by genomic position
+                if raw_name is None:
+                    raw_name = f"unknown_{feature.location.start}"
+                    ambiguous_genes.add(raw_name)
+
+                # Flag tRNA without anticodon info
+                if raw_name.lower().startswith("trn"):
+                    has_ac = ('-' in raw_name or '_' in raw_name or
+                              '(' in raw_name or
+                              'anticodon' in feature.qualifiers)
+                    if not has_ac:
+                        gene_without_anticodon.add(
+                            f"{raw_name} (in {species_label} at "
+                            f"{feature.location.start}-{feature.location.end})"
+                        )
+
+                norm_name = normalize_gene_name(raw_name)
+                if raw_name != norm_name:
+                    synonym_mapping[norm_name].add(raw_name)
+
+                features_by_gene[norm_name].append(feature)
+
+            # ----------------------------------------------------------------
+            # Process each gene — use the FIRST (lowest-position) copy only.
+            # ----------------------------------------------------------------
+            for gene_name, gfeatures in features_by_gene.items():
+                gfeatures.sort(key=lambda f: int(f.location.start))
+                first = gfeatures[0]   # canonical copy (LSC / lowest position)
+                strand = first.location.strand
+
+                # Pseudogene check
+                is_pseudo = (
+                    "pseudo"     in first.qualifiers or
+                    "pseudogene" in first.qualifiers
+                )
+                if is_pseudo:
+                    print(f"    [pseudo] {gene_name} — excluded from diversity")
+
+                # ----------------------------------------------------------
+                # GENE sequence
+                # extract() handles reverse-complement for minus-strand genes
+                # automatically, so no manual RC needed here.
+                # ----------------------------------------------------------
+                gene_key = (species_label, gene_name)
+                if not is_pseudo and gene_key not in seen_genes:
+                    seen_genes.add(gene_key)
+                    gene_seq = first.location.extract(sequence)
+                    genes_dict[gene_name].append(
+                        SeqRecord(gene_seq,
+                                  id=species_label,
+                                  description="")
+                    )
+
+                # ----------------------------------------------------------
+                # INTRON sequences — derived from the same first copy
+                # ----------------------------------------------------------
+                exon_parts = (
+                    list(first.location.parts)
+                    if hasattr(first.location, "parts")
+                    else [first.location]
+                )
+                # Sort exons by genomic coordinate (always ascending)
                 exon_parts.sort(key=lambda x: int(x.start))
-                
-                # Genes without introns (only 1 exon)
+
                 if len(exon_parts) < 2:
-                    continue
-                
-                # Skip trans-spliced genes (e.g., rps12 spanning LSC to IR)
-                # But allow extraction of introns WITHIN a region for rps12
+                    continue   # no introns in this gene
+
                 gene_span = int(exon_parts[-1].end) - int(exon_parts[0].start)
-                
-                # For rps12: special handling
-                # It has parts in LSC and IR with huge gap - but IR portion has real intron
-                if gene_name.lower() == "rps12":
-                    # Don't skip entirely, but filter introns later
-                    # Extract introns, but only if they're < 10,000 bp (within same region)
-                    pass
-                elif gene_span > 10000:
-                    # For other genes, skip if span > 10,000 bp
-                    print(f"    Skipping trans-spliced gene {gene_name} (span: {gene_span} bp)")
+
+                # Skip trans-spliced genes (except rps12 handled below)
+                if gene_name.lower() != "rps12" and gene_span > 10000:
+                    print(f"    Skipping trans-spliced {gene_name} "
+                          f"(span {gene_span} bp)")
                     continue
-                
-                # First, collect valid introns to count them
+
+                # Collect valid introns
                 valid_introns = []
                 for i in range(len(exon_parts) - 1):
-                    intron_start = int(exon_parts[i].end)
-                    intron_end = int(exon_parts[i + 1].start)
-                    
-                    # Skip invalid introns
-                    if intron_end <= intron_start:
+                    i_start = int(exon_parts[i].end)
+                    i_end   = int(exon_parts[i + 1].start)
+                    if i_end <= i_start:
                         continue
-                    
-                    intron_length = intron_end - intron_start
-                    
-                    # Skip trans-spliced "introns" (e.g., gap between LSC and IR in rps12)
-                    if intron_length > 10000:
-                        print(f"    Skipping trans-spliced intron in {gene_name} ({intron_length} bp)")
+                    i_len = i_end - i_start
+                    if i_len > 10000:
+                        print(f"    Skipping trans-spliced intron in "
+                              f"{gene_name} ({i_len} bp)")
                         continue
-                    
-                    intron_seq = sequence[intron_start:intron_end]
-                    
-                    # Handle strand orientation
+                    # Raw genomic slice, then orient to match gene strand
+                    i_seq = sequence[i_start:i_end]
                     if strand == -1:
-                        intron_seq = intron_seq.reverse_complement()
-                    
-                    valid_introns.append((intron_start, intron_end, intron_seq, intron_length))
-                
-                # Now name and store introns based on count
+                        i_seq = i_seq.reverse_complement()
+                    valid_introns.append((i_start, i_end, i_seq, i_len))
+
                 num_introns = len(valid_introns)
-                for idx, (intron_start, intron_end, intron_seq, intron_length) in enumerate(valid_introns, 1):
-                    # Name the intron based on count
-                    if num_introns == 1:
-                        # Single intron: "gene intron" (no number)
-                        intron_name = f"{gene_name} intron"
-                        intron_suffix = "intron"
-                    else:
-                        # Multiple introns: "gene intron I", "gene intron II" (Roman numerals)
-                        roman_num = to_roman(idx)
-                        intron_name = f"{gene_name} intron {roman_num}"
-                        intron_suffix = f"intron{roman_num}"
-                    
-                    # Create unique ID including position to distinguish IR copies
-                    unique_intron_id = f"{organism_id}_pos{gene_start}_{intron_suffix}"
-                    
-                    intron_record = SeqRecord(
-                        intron_seq,
-                        id=unique_intron_id,
-                        description=f"{organism_id}_{intron_name}"
+                for idx, (i_start, i_end, i_seq, i_len) in \
+                        enumerate(valid_introns, 1):
+                    intron_name = (
+                        f"{gene_name} intron"
+                        if num_introns == 1
+                        else f"{gene_name} intron {to_roman(idx)}"
                     )
-                    
-                    intron_dict[intron_name].append(intron_record)
-                    print(f"    Extracted {intron_name}: {intron_start+1}..{intron_end} ({intron_length} bp)")
-            
-            # Extract intergenic regions
-            # Use only CDS/tRNA/rRNA features
-            coding_features = [f for f in all_features if f.type in ["CDS", "tRNA", "rRNA"]]
-            
-            if len(coding_features) > 1:
-                for i in range(len(coding_features) - 1):
-                    current_feature = coding_features[i]
-                    next_feature = coding_features[i + 1]
-                    
-                    # Skip if either feature doesn't have gene name
-                    if "gene" not in current_feature.qualifiers or "gene" not in next_feature.qualifiers:
-                        continue
-                    
-                    # Get normalized gene names
-                    gene1_raw = current_feature.qualifiers.get("gene", [f"gene{i}"])[0]
-                    gene2_raw = next_feature.qualifiers.get("gene", [f"gene{i+1}"])[0]
-                    
-                    gene1 = normalize_gene_name(gene1_raw)
-                    gene2 = normalize_gene_name(gene2_raw)
-                    
-                    # Create spacer name: gene1-gene2
-                    spacer_name = f"{gene1}-{gene2}"
-                    
-                    # Extract intergenic sequence
-                    start = int(current_feature.location.end)
-                    end = int(next_feature.location.start)
-                    
-                    if start < end:  # Valid intergenic region
-                        intergenic_seq = sequence[start:end]
-                        
-                        # Only include if substantial length (> 10 bp)
-                        if len(intergenic_seq) > 10:
-                            # Determine orientation based on flanking genes
-                            strand1 = current_feature.location.strand
-                            strand2 = next_feature.location.strand
-                            
-                            # If both genes on minus strand, reverse complement
-                            if strand1 == -1 and strand2 == -1:
-                                intergenic_seq = intergenic_seq.reverse_complement()
-                            
-                            # Use position to create unique ID for IR copies
-                            unique_id = f"{organism_id}_pos{start}"
-                            
-                            seq_record = SeqRecord(
-                                intergenic_seq,
-                                id=unique_id,
-                                description=f"{organism_id}_{spacer_name}"
-                            )
-                            
-                            intergenic_dict[spacer_name].append(seq_record)
-    
-    return genes_dict, intron_dict, intergenic_dict, ambiguous_genes, gene_without_anticodon, synonym_mapping
+                    intron_key = (species_label, intron_name)
+                    if intron_key not in seen_introns:
+                        seen_introns.add(intron_key)
+                        intron_dict[intron_name].append(
+                            SeqRecord(i_seq,
+                                      id=species_label,
+                                      description="")
+                        )
+                        print(f"    Extracted {intron_name}: "
+                              f"{i_start+1}..{i_end} ({i_len} bp)")
+                    else:
+                        print(f"    Skipping duplicate {intron_name} "
+                              f"for {species_label} (IR copy)")
+
+            # ----------------------------------------------------------------
+            # INTERGENIC SPACERS
+            # Iterate consecutive feature pairs; normalise spacer name by
+            # sorting the two flanking gene names so IRa and IRb yield the
+            # same key.  Reverse-complement if both flanking genes are on
+            # the minus strand (= IRb context).
+            # ----------------------------------------------------------------
+            for i in range(len(all_features) - 1):
+                cur  = all_features[i]
+                nxt  = all_features[i + 1]
+
+                g1_raw = (cur.qualifiers.get("gene",    [None])[0] or
+                          cur.qualifiers.get("product", [None])[0])
+                g2_raw = (nxt.qualifiers.get("gene",    [None])[0] or
+                          nxt.qualifiers.get("product", [None])[0])
+                if not g1_raw or not g2_raw:
+                    continue
+
+                g1 = normalize_gene_name(g1_raw)
+                g2 = normalize_gene_name(g2_raw)
+
+                # Canonical spacer name: alphabetical order of the two genes
+                spacer_name = "-".join(sorted([g1, g2]))
+
+                sp_start = int(cur.location.end)
+                sp_end   = int(nxt.location.start)
+
+                if sp_end <= sp_start:
+                    continue          # overlapping features — no spacer
+                if (sp_end - sp_start) <= 10:
+                    continue          # too short to be meaningful
+
+                spacer_key = (species_label, spacer_name)
+                if spacer_key in seen_spacers:
+                    print(f"    Skipping duplicate spacer {spacer_name} "
+                          f"for {species_label} (IR copy)")
+                    continue
+
+                sp_seq = sequence[sp_start:sp_end]
+
+                # Orientation: reverse-complement when BOTH flanking genes
+                # are on the minus strand (IRb context).
+                if cur.location.strand == -1 and nxt.location.strand == -1:
+                    sp_seq = sp_seq.reverse_complement()
+
+                seen_spacers.add(spacer_key)
+                intergenic_dict[spacer_name].append(
+                    SeqRecord(sp_seq,
+                              id=species_label,
+                              description="")
+                )
+
+    return (genes_dict, intron_dict, intergenic_dict,
+            ambiguous_genes, gene_without_anticodon, synonym_mapping)
 
 def get_feature_order(genbank_file):
     """
-    Extract genomic order of features (genes, introns, intergenic spacers).
-    Returns dictionaries mapping feature names to their genomic positions.
+    Build a unified ordered list of ALL regions in the order they appear in
+    the reference genome:
+
+        gene1  ->  gene1_intron(s)  ->  gene1-gene2_spacer  ->  gene2  ->  ...
+
+    This ensures that IGS and intron results follow exactly the same
+    left-to-right genomic pattern as the gene track.
+
+    Returns
+    -------
+    gene_positions        : {gene_name:   genomic_start}
+    intron_positions      : {intron_name: genomic_start}
+    intergenic_positions  : {sorted_key:  genomic_start}
+    canonical_spacer_names: {sorted_key -> directional_name}
+                            Maps sorted extraction key (e.g. "trnN-trnR")
+                            to the directional reference name ("trnR-trnN").
+    unified_order         : [(region_type, display_name, genomic_pos), ...]
+                            Full interleaved order used to sort Panel B.
     """
-    gene_positions = {}
-    intron_positions = {}
-    intergenic_positions = {}
-    
+    gene_positions         = {}
+    intron_positions       = {}
+    intergenic_positions   = {}
+    canonical_spacer_names = {}
+    unified_order          = []
+
     for record in SeqIO.parse(genbank_file, "genbank"):
-        all_features = [f for f in record.features if f.type in ["CDS", "tRNA", "rRNA"]]
+        all_features = [f for f in record.features
+                        if f.type in ["CDS", "tRNA", "rRNA"]]
         all_features.sort(key=lambda x: int(x.location.start))
-        
-        # Get gene positions
+
+        # Deduplicate by gene name — keep only first (lowest-position) copy
+        seen = {}
+        deduped = []
         for feature in all_features:
-            gene_name = feature.qualifiers.get("gene", [None])[0]
-            if gene_name:
-                normalized_name = normalize_gene_name(gene_name)
-                if normalized_name not in gene_positions:
-                    gene_positions[normalized_name] = int(feature.location.start)
-        
-        # Get intron positions
-        features_by_gene = defaultdict(list)
-        for feature in all_features:
-            gene_name = feature.qualifiers.get("gene", [None])[0]
-            if gene_name:
-                normalized_name = normalize_gene_name(gene_name)
-                key = (normalized_name, feature.location.start)
-                features_by_gene[key].append(feature)
-        
-        for (gene_name, gene_start), gene_features in features_by_gene.items():
-            exon_parts = []
-            for feature in gene_features:
-                if hasattr(feature.location, "parts"):
-                    exon_parts.extend(feature.location.parts)
-                else:
-                    exon_parts.append(feature.location)
-            
+            raw = (feature.qualifiers.get("gene",    [None])[0] or
+                   feature.qualifiers.get("product", [None])[0])
+            if not raw:
+                continue
+            norm = normalize_gene_name(raw)
+            if norm not in seen:
+                seen[norm] = True
+                gene_positions[norm] = int(feature.location.start)
+                deduped.append((norm, feature))
+
+        # Build unified order: gene -> its introns -> spacer to next gene -> ...
+        for idx, (gene_name, feature) in enumerate(deduped):
+            gene_pos = int(feature.location.start)
+            unified_order.append(("Gene", gene_name, gene_pos))
+
+            # Introns of this gene
+            exon_parts = (list(feature.location.parts)
+                          if hasattr(feature.location, "parts")
+                          else [feature.location])
             exon_parts.sort(key=lambda x: int(x.start))
-            
+
             if len(exon_parts) >= 2:
-                # First, count valid introns
                 valid_introns = []
                 for i in range(len(exon_parts) - 1):
-                    intron_start = int(exon_parts[i].end)
-                    intron_end = int(exon_parts[i + 1].start)
-                    intron_length = intron_end - intron_start
-                    
-                    if 0 < intron_length <= 10000:
-                        valid_introns.append((intron_start, i))
-                
-                # Now name introns based on count
-                num_introns = len(valid_introns)
-                for idx, (intron_start, _) in enumerate(valid_introns, 1):
-                    if num_introns == 1:
-                        # Single intron: "gene intron" (no number)
-                        intron_name = f"{gene_name} intron"
-                    else:
-                        # Multiple introns: "gene intron I", "gene intron II"
-                        roman_num = to_roman(idx)
-                        intron_name = f"{gene_name} intron {roman_num}"
-                    
-                    if intron_name not in intron_positions:
-                        intron_positions[intron_name] = intron_start
-        
-        # Get intergenic spacer positions
-        if len(all_features) > 1:
-            for i in range(len(all_features) - 1):
-                gene1 = all_features[i].qualifiers.get("gene", [None])[0]
-                gene2 = all_features[i + 1].qualifiers.get("gene", [None])[0]
-                
-                if gene1 and gene2:
-                    gene1_norm = normalize_gene_name(gene1)
-                    gene2_norm = normalize_gene_name(gene2)
-                    spacer_name = f"{gene1_norm}-{gene2_norm}"
-                    
-                    start = int(all_features[i].location.end)
-                    end = int(all_features[i + 1].location.start)
-                    
-                    if start < end and (end - start) > 10:
-                        if spacer_name not in intergenic_positions:
-                            intergenic_positions[spacer_name] = start
-        
-        break  # Only need first record to get order
-    
-    return gene_positions, intron_positions, intergenic_positions
+                    i_start = int(exon_parts[i].end)
+                    i_end   = int(exon_parts[i + 1].start)
+                    i_len   = i_end - i_start
+                    if 0 < i_len <= 10000:
+                        valid_introns.append(i_start)
+
+                num = len(valid_introns)
+                for i2, i_start in enumerate(valid_introns, 1):
+                    iname = (f"{gene_name} intron"
+                             if num == 1
+                             else f"{gene_name} intron {to_roman(i2)}")
+                    if iname not in intron_positions:
+                        intron_positions[iname] = i_start
+                    unified_order.append(("Intron", iname, i_start))
+
+            # Spacer between this gene and the next
+            if idx + 1 < len(deduped):
+                next_name, next_feat = deduped[idx + 1]
+                sp_start = int(feature.location.end)
+                sp_end   = int(next_feat.location.start)
+
+                if sp_end > sp_start and (sp_end - sp_start) > 10:
+                    directional = f"{gene_name}-{next_name}"
+                    sorted_key  = "-".join(sorted([gene_name, next_name]))
+
+                    if sorted_key not in intergenic_positions:
+                        intergenic_positions[sorted_key] = sp_start
+                    if sorted_key not in canonical_spacer_names:
+                        canonical_spacer_names[sorted_key] = directional
+
+                    unified_order.append(("Intergenic", sorted_key, sp_start))
+
+        break  # Only the first record defines the reference order
+
+    return (gene_positions, intron_positions, intergenic_positions,
+            canonical_spacer_names, unified_order)
 
 def write_fasta_files(features_dict, output_dir, prefix):
     """Write sequences to FASTA files for each feature."""
@@ -763,265 +836,206 @@ For more information, see the CGAS documentation.
     print("\nAligning genes and calculating diversity...")
     for gene_name, fasta_file in gene_fasta_files:
         alignment_file = os.path.join(alignments_dir, f"gene_{os.path.basename(fasta_file)}")
-        
+        n_seqs = len(genes_dict.get(gene_name, []))
         if align_with_mafft(fasta_file, alignment_file):
             pi, valid_sites, total_length = calculate_nucleotide_diversity(alignment_file)
             if pi is not None:
-                results.append(("Gene", gene_name, pi, valid_sites, total_length))
-                print(f"  {gene_name}: π = {pi:.6f}")
+                results.append(("Gene", gene_name, pi, valid_sites, total_length, n_seqs))
+                print(f"  {gene_name}: π = {pi:.6f}  (n={n_seqs})")
     
     print("\nAligning introns and calculating diversity...")
     for intron_name, fasta_file in intron_fasta_files:
         alignment_file = os.path.join(alignments_dir, f"intron_{os.path.basename(fasta_file)}")
-        
+        n_seqs = len(intron_dict.get(intron_name, []))
         if align_with_mafft(fasta_file, alignment_file):
             pi, valid_sites, total_length = calculate_nucleotide_diversity(alignment_file)
             if pi is not None:
-                results.append(("Intron", intron_name, pi, valid_sites, total_length))
-                print(f"  {intron_name}: π = {pi:.6f}")
+                results.append(("Intron", intron_name, pi, valid_sites, total_length, n_seqs))
+                print(f"  {intron_name}: π = {pi:.6f}  (n={n_seqs})")
     
     print("\nAligning intergenic regions and calculating diversity...")
     for spacer_name, fasta_file in intergenic_fasta_files:
         alignment_file = os.path.join(alignments_dir, f"spacer_{os.path.basename(fasta_file)}")
+        n_seqs = len(intergenic_dict.get(spacer_name, []))
         
         if align_with_mafft(fasta_file, alignment_file):
             pi, valid_sites, total_length = calculate_nucleotide_diversity(alignment_file)
             if pi is not None:
-                results.append(("Intergenic", spacer_name, pi, valid_sites, total_length))
-                print(f"  {spacer_name}: π = {pi:.6f}")
-    
-    # Write results to file
+                results.append(("Intergenic", spacer_name, pi, valid_sites, total_length, n_seqs))
+                print(f"  {spacer_name}: π = {pi:.6f}  (n={n_seqs})")
+    # ======================================================================
+    # Build ordered results using the reference genome unified order
+    # ======================================================================
+    print(f"\nGenerating genomic position-ordered results...")
+    gene_positions, intron_positions, intergenic_positions, \
+        canonical_spacer_names, unified_order = get_feature_order(genbank_files[0])
+
+    n_total_species = len(genbank_files)
+
+    # Build lookup: (region_type, sorted_key) -> (pi, valid_sites, length, n_seqs)
+    results_lookup = {}
+    for tup in results:
+        rtype, rname, pi, vs, ln, ns = tup
+        results_lookup[(rtype, rname)] = (pi, vs, ln, ns)
+
+    # Build ordered list following unified_order (gene -> intron(s) -> igs -> gene -> ...)
+    ordered_all = []
+    for rtype, rname, rpos in unified_order:
+        if rtype == "Intergenic":
+            display = canonical_spacer_names.get(rname, rname)
+        else:
+            display = rname
+        key = (rtype, rname)
+        if key in results_lookup:
+            pi, vs, ln, ns = results_lookup[key]
+            ordered_all.append((rpos, rtype, display, rname, pi, vs, ln, ns))
+
+    # ======================================================================
+    # Main results text file  (genomic order, with n_sequences column)
+    # ======================================================================
     results_file = os.path.join(output_folder, "nucleotide_diversity_results.txt")
     with open(results_file, "w") as f:
+        W = 98
         f.write("Nucleotide Diversity Analysis Results\n")
-        f.write("=" * 80 + "\n\n")
-        f.write(f"Input files: {len(genbank_files)} GenBank files\n")
-        f.write(f"Total regions analyzed: {len(results)}\n\n")
-        
-        # Report gene synonyms that were merged
+        f.write("=" * W + "\n\n")
+        f.write(f"Input files   : {n_total_species} GenBank files\n")
+        f.write(f"Total regions : {len(results)}\n\n")
+
         if synonym_mapping:
             f.write("GENE SYNONYMS MERGED:\n")
-            f.write("-" * 80 + "\n")
-            f.write("The following alternative gene names were normalized to standard names:\n\n")
-            for standard_name, original_names in sorted(synonym_mapping.items()):
-                if len(original_names) > 1:
-                    names_str = ", ".join(sorted(original_names))
-                    f.write(f"  {standard_name} ← [{names_str}]\n")
+            f.write("-" * W + "\n")
+            for std, origs in sorted(synonym_mapping.items()):
+                if len(origs) > 1:
+                    f.write(f"  {std} <- [{', '.join(sorted(origs))}]\n")
             f.write("\n")
-        
-        # Report problematic genes in the file
+
         if ambiguous_genes or genes_without_anticodon:
             f.write("WARNINGS:\n")
-            f.write("-" * 80 + "\n")
-            
+            f.write("-" * W + "\n")
             if ambiguous_genes:
                 f.write(f"\nGenes without clear identification ({len(ambiguous_genes)}):\n")
-                for gene in sorted(ambiguous_genes):
-                    f.write(f"  - {gene}\n")
-            
+                for g in sorted(ambiguous_genes):
+                    f.write(f"  - {g}\n")
             if genes_without_anticodon:
-                f.write(f"\ntRNA genes without anticodon information ({len(genes_without_anticodon)}):\n")
-                for gene in sorted(genes_without_anticodon):
-                    f.write(f"  - {gene}\n")
+                f.write(f"\ntRNA genes without anticodon ({len(genes_without_anticodon)}):\n")
+                for g in sorted(genes_without_anticodon):
+                    f.write(f"  - {g}\n")
                 f.write("\nNote: These tRNAs may not align properly across species.\n")
-            
             f.write("\n")
-        
-        f.write("-" * 80 + "\n")
-        f.write(f"{'Type':<15} {'Name':<40} {'π':<12} {'Valid Sites':<12} {'Length':<10}\n")
-        f.write("-" * 80 + "\n")
-        
-        for region_type, name, pi, valid_sites, length in results:
-            f.write(f"{region_type:<15} {name:<40} {pi:<12.6f} {valid_sites:<12} {length:<10}\n")
-        
-        f.write("-" * 80 + "\n\n")
-        
+
+        f.write("-" * W + "\n")
+        f.write(f"{'Type':<12} {'Region':<38} {'n_seq':<7} {'pi':<12} {'Valid_Sites':<13} {'Aln_Len':<10}\n")
+        f.write("-" * W + "\n")
+        for rpos, rtype, display, rname, pi, vs, ln, ns in ordered_all:
+            flag = f"  <- missing {n_total_species - ns}" if ns < n_total_species else ""
+            f.write(f"{rtype:<12} {display:<38} {ns:<7} {pi:<12.6f} {vs:<13} {ln:<10}{flag}\n")
+        f.write("-" * W + "\n\n")
+
         # Summary statistics
-        gene_results = [r for r in results if r[0] == "Gene"]
-        intron_results = [r for r in results if r[0] == "Intron"]
-        intergenic_results = [r for r in results if r[0] == "Intergenic"]
-        
-        if gene_results:
-            gene_pi_values = [r[2] for r in gene_results]
-            f.write(f"\nGene Statistics:\n")
-            f.write(f"  Number of genes: {len(gene_results)}\n")
-            f.write(f"  Mean π: {np.mean(gene_pi_values):.6f}\n")
-            f.write(f"  Median π: {np.median(gene_pi_values):.6f}\n")
-            f.write(f"  Min π: {np.min(gene_pi_values):.6f}\n")
-            f.write(f"  Max π: {np.max(gene_pi_values):.6f}\n")
-        
-        if intron_results:
-            intron_pi_values = [r[2] for r in intron_results]
-            f.write(f"\nIntron Statistics:\n")
-            f.write(f"  Number of introns: {len(intron_results)}\n")
-            f.write(f"  Mean π: {np.mean(intron_pi_values):.6f}\n")
-            f.write(f"  Median π: {np.median(intron_pi_values):.6f}\n")
-            f.write(f"  Min π: {np.min(intron_pi_values):.6f}\n")
-            f.write(f"  Max π: {np.max(intron_pi_values):.6f}\n")
-        
-        if intergenic_results:
-            intergenic_pi_values = [r[2] for r in intergenic_results]
-            f.write(f"\nIntergenic Region Statistics:\n")
-            f.write(f"  Number of regions: {len(intergenic_results)}\n")
-            f.write(f"  Mean π: {np.mean(intergenic_pi_values):.6f}\n")
-            f.write(f"  Median π: {np.median(intergenic_pi_values):.6f}\n")
-            f.write(f"  Min π: {np.min(intergenic_pi_values):.6f}\n")
-            f.write(f"  Max π: {np.max(intergenic_pi_values):.6f}\n")
-    
+        gene_pi = [x[4] for x in ordered_all if x[1] == "Gene"]
+        nc_pi   = [x[4] for x in ordered_all if x[1] != "Gene"]
+        intr_pi = [x[4] for x in ordered_all if x[1] == "Intron"]
+        igs_pi  = [x[4] for x in ordered_all if x[1] == "Intergenic"]
+
+        if gene_pi:
+            f.write("Gene Statistics:\n")
+            f.write(f"  Regions  : {len(gene_pi)}\n")
+            f.write(f"  Mean pi  : {np.mean(gene_pi):.6f}\n")
+            f.write(f"  Median pi: {np.median(gene_pi):.6f}\n")
+            f.write(f"  Min pi   : {np.min(gene_pi):.6f}\n")
+            f.write(f"  Max pi   : {np.max(gene_pi):.6f}\n\n")
+        if intr_pi:
+            f.write("Intron Statistics:\n")
+            f.write(f"  Regions  : {len(intr_pi)}\n")
+            f.write(f"  Mean pi  : {np.mean(intr_pi):.6f}\n")
+            f.write(f"  Median pi: {np.median(intr_pi):.6f}\n")
+            f.write(f"  Min pi   : {np.min(intr_pi):.6f}\n")
+            f.write(f"  Max pi   : {np.max(intr_pi):.6f}\n\n")
+        if igs_pi:
+            f.write("Intergenic Spacer Statistics:\n")
+            f.write(f"  Regions  : {len(igs_pi)}\n")
+            f.write(f"  Mean pi  : {np.mean(igs_pi):.6f}\n")
+            f.write(f"  Median pi: {np.median(igs_pi):.6f}\n")
+            f.write(f"  Min pi   : {np.min(igs_pi):.6f}\n")
+            f.write(f"  Max pi   : {np.max(igs_pi):.6f}\n")
+
     print(f"\n{'='*80}")
     print(f"Analysis complete!")
     print(f"Results written to: {results_file}")
     print(f"FASTA files in: {genes_dir}, {intron_dir}, and {intergenic_dir}")
     print(f"Alignments in: {alignments_dir}")
-    
     if ambiguous_genes or genes_without_anticodon:
-        print(f"\n⚠ Check the results file for warnings about ambiguous genes and tRNAs")
-    
-    # ========================================
-    # Generate additional ordered output files
-    # ========================================
-    print(f"\nGenerating genomic position-ordered results...")
-    
-    # Get genomic positions from first GenBank file
-    gene_positions, intron_positions, intergenic_positions = get_feature_order(genbank_files[0])
-    
-    # Create results organized by genomic position
-    # File 1: Separate sections for genes and non-coding regions
+        print(f"\n⚠ Check the results file for warnings")
+
+    # ======================================================================
+    # Ordered text file  (coding / non-coding separate sections)
+    # ======================================================================
     ordered_results_file = os.path.join(output_folder, "nucleotide_diversity_by_position.txt")
+    W = 98
     with open(ordered_results_file, "w") as f:
-        f.write("Nucleotide Diversity Results Organized by Genomic Position\n")
-        f.write("=" * 80 + "\n\n")
-        
-        # GENES section
+        f.write("Nucleotide Diversity Results Organised by Genomic Position\n")
+        f.write("=" * W + "\n\n")
         f.write("PROTEIN-CODING AND RNA GENES\n")
-        f.write("-" * 80 + "\n")
-        f.write(f"{'Position':<12} {'Gene':<30} {'π':<12} {'Valid Sites':<12} {'Length':<10}\n")
-        f.write("-" * 80 + "\n")
-        
-        gene_results = [r for r in results if r[0] == "Gene"]
-        gene_results_with_pos = []
-        for region_type, name, pi, valid_sites, length in gene_results:
-            pos = gene_positions.get(name, 999999)
-            gene_results_with_pos.append((pos, region_type, name, pi, valid_sites, length))
-        
-        gene_results_with_pos.sort(key=lambda x: x[0])
-        
-        for pos, region_type, name, pi, valid_sites, length in gene_results_with_pos:
-            f.write(f"{pos:<12} {name:<30} {pi:<12.6f} {valid_sites:<12} {length:<10}\n")
-        
-        f.write("\n\n")
-        
-        # NON-CODING REGIONS section (introns and intergenic)
-        f.write("NON-CODING REGIONS (Introns and Intergenic Spacers)\n")
-        f.write("-" * 80 + "\n")
-        f.write(f"{'Position':<12} {'Type':<12} {'Name':<30} {'π':<12} {'Valid Sites':<12} {'Length':<10}\n")
-        f.write("-" * 80 + "\n")
-        
-        noncoding_results = [r for r in results if r[0] in ["Intron", "Intergenic"]]
-        noncoding_with_pos = []
-        
-        for region_type, name, pi, valid_sites, length in noncoding_results:
-            if region_type == "Intron":
-                pos = intron_positions.get(name, 999999)
-            else:  # Intergenic
-                pos = intergenic_positions.get(name, 999999)
-            noncoding_with_pos.append((pos, region_type, name, pi, valid_sites, length))
-        
-        noncoding_with_pos.sort(key=lambda x: x[0])
-        
-        for pos, region_type, name, pi, valid_sites, length in noncoding_with_pos:
-            f.write(f"{pos:<12} {region_type:<12} {name:<30} {pi:<12.6f} {valid_sites:<12} {length:<10}\n")
-    
-    # File 2: All results combined in genomic order
+        f.write("-" * W + "\n")
+        f.write(f"{'Pos':<12} {'Gene':<38} {'n_seq':<7} {'pi':<12} {'Valid_Sites':<13} {'Aln_Len':<10}\n")
+        f.write("-" * W + "\n")
+        for rpos, rtype, display, rname, pi, vs, ln, ns in ordered_all:
+            if rtype == "Gene":
+                flag = f"  <- missing {n_total_species - ns}" if ns < n_total_species else ""
+                f.write(f"{rpos:<12} {display:<38} {ns:<7} {pi:<12.6f} {vs:<13} {ln:<10}{flag}\n")
+        f.write("\n\nNON-CODING REGIONS (introns and IGS in genome order)\n")
+        f.write("-" * W + "\n")
+        f.write(f"{'Pos':<12} {'Type':<12} {'Region':<38} {'n_seq':<7} {'pi':<12} {'Valid_Sites':<13} {'Aln_Len':<10}\n")
+        f.write("-" * W + "\n")
+        for rpos, rtype, display, rname, pi, vs, ln, ns in ordered_all:
+            if rtype != "Gene":
+                flag = f"  <- missing {n_total_species - ns}" if ns < n_total_species else ""
+                f.write(f"{rpos:<12} {rtype:<12} {display:<38} {ns:<7} {pi:<12.6f} {vs:<13} {ln:<10}{flag}\n")
+
+    # ======================================================================
+    # Combined all-regions file  (full interleaved genomic order)
+    # ======================================================================
     combined_ordered_file = os.path.join(output_folder, "nucleotide_diversity_all_regions_by_position.txt")
     with open(combined_ordered_file, "w") as f:
-        f.write("Complete Nucleotide Diversity Results in Genomic Order\n")
-        f.write("=" * 80 + "\n")
-        f.write("All regions (genes, introns, intergenic spacers) ordered by genomic position\n\n")
-        f.write("-" * 80 + "\n")
-        f.write(f"{'Position':<12} {'Type':<12} {'Name':<30} {'π':<12} {'Valid Sites':<12} {'Length':<10}\n")
-        f.write("-" * 80 + "\n")
-        
-        # Combine all results with positions
-        all_with_pos = []
-        
-        for region_type, name, pi, valid_sites, length in results:
-            if region_type == "Gene":
-                pos = gene_positions.get(name, 999999)
-            elif region_type == "Intron":
-                pos = intron_positions.get(name, 999999)
-            elif region_type == "Intergenic":
-                pos = intergenic_positions.get(name, 999999)
-            else:
-                pos = 999999
-            
-            all_with_pos.append((pos, region_type, name, pi, valid_sites, length))
-        
-        # Sort by genomic position
-        all_with_pos.sort(key=lambda x: x[0])
-        
-        for pos, region_type, name, pi, valid_sites, length in all_with_pos:
-            f.write(f"{pos:<12} {region_type:<12} {name:<30} {pi:<12.6f} {valid_sites:<12} {length:<10}\n")
-        
-        f.write("-" * 80 + "\n")
-        f.write(f"\nTotal regions: {len(all_with_pos)}\n")
-    
+        f.write("All Regions in Genomic Order  (gene → intron → IGS → gene → ...)\n")
+        f.write("=" * W + "\n\n")
+        f.write(f"{'Pos':<12} {'Type':<12} {'Region':<38} {'n_seq':<7} {'pi':<12} {'Valid_Sites':<13} {'Aln_Len':<10}\n")
+        f.write("-" * W + "\n")
+        for rpos, rtype, display, rname, pi, vs, ln, ns in ordered_all:
+            flag = f"  <- missing {n_total_species - ns}" if ns < n_total_species else ""
+            f.write(f"{rpos:<12} {rtype:<12} {display:<38} {ns:<7} {pi:<12.6f} {vs:<13} {ln:<10}{flag}\n")
+        f.write("-" * W + "\n")
+        f.write(f"\nTotal regions: {len(ordered_all)}\n")
+
     print(f"✓ Ordered results (coding/non-coding separate): {ordered_results_file}")
-    print(f"✓ Ordered results (all combined): {combined_ordered_file}")
-    
-    # ========================================
-    # Generate R-compatible output files for plotting
-    # ========================================
+    print(f"✓ Ordered results (all combined)              : {combined_ordered_file}")
+
+    # ======================================================================
+    # R-compatible output files  (Panel A: genes | Panel B: non-coding)
+    # Both follow the unified genomic order.
+    # IGS uses directional name (trnH-psbA not sorted psbA-trnH).
+    # ======================================================================
     print(f"\nGenerating R-compatible data files for plotting...")
-    
-    # File for Panel A: Genes only (ordered by position)
+
     r_genes_file = os.path.join(output_folder, "genes_for_R_plot.txt")
     with open(r_genes_file, "w") as f:
         f.write("Region\tValue\n")
-        
-        gene_results = [r for r in results if r[0] == "Gene"]
-        gene_results_with_pos = []
-        for region_type, name, pi, valid_sites, length in gene_results:
-            pos = gene_positions.get(name, 999999)
-            gene_results_with_pos.append((pos, name, pi))
-        
-        gene_results_with_pos.sort(key=lambda x: x[0])
-        
-        for pos, name, pi in gene_results_with_pos:
-            f.write(f"{name}\t{pi:.5f}\n")
-    
-    # File for Panel B: Introns and Intergenic spacers mixed (ordered by position)
+        for rpos, rtype, display, rname, pi, vs, ln, ns in ordered_all:
+            if rtype == "Gene":
+                f.write(f"{display}\t{pi:.5f}\n")
+
     r_noncoding_file = os.path.join(output_folder, "noncoding_for_R_plot.txt")
     with open(r_noncoding_file, "w") as f:
         f.write("Region\tValue\n")
-        
-        noncoding_results = [r for r in results if r[0] in ["Intron", "Intergenic"]]
-        noncoding_with_pos = []
-        
-        for region_type, name, pi, valid_sites, length in noncoding_results:
-            if region_type == "Intron":
-                pos = intron_positions.get(name, 999999)
-                # Intron names are already properly formatted (e.g., "trnK-UUU intron" or "ycf3 intron I")
-                display_name = name
-            else:  # Intergenic
-                pos = intergenic_positions.get(name, 999999)
-                display_name = name
-            
-            noncoding_with_pos.append((pos, display_name, pi))
-        
-        noncoding_with_pos.sort(key=lambda x: x[0])
-        
-        for pos, display_name, pi in noncoding_with_pos:
-            f.write(f"{display_name}\t{pi:.5f}\n")
-    
-    print(f"✓ R-compatible genes data: {r_genes_file}")
+        for rpos, rtype, display, rname, pi, vs, ln, ns in ordered_all:
+            if rtype != "Gene":
+                f.write(f"{display}\t{pi:.5f}\n")
+
+    print(f"✓ R-compatible genes data     : {r_genes_file}")
     print(f"✓ R-compatible non-coding data: {r_noncoding_file}")
-    
-    # ========================================
-    # Generate R visualizations (WITHOUT region markers)
-    # ========================================
+
     generate_r_visualizations(r_genes_file, r_noncoding_file, output_folder)
-    
+
     print(f"{'='*80}")
 
 
@@ -1178,19 +1192,22 @@ def generate_r_visualizations(genes_file, noncoding_file, output_folder):
 def create_diversity_r_script(genes_file, noncoding_file):
     """
     Create R script for nucleotide diversity visualization.
-    
-    Parameters:
-    -----------
-    genes_file : str
-        Path to genes data file
-    noncoding_file : str
-        Path to non-coding regions data file
+    Produces two panels:
+      Panel A – Genes (blue line + points)
+      Panel B – Non-coding regions: introns (orange) and IGS (blue),
+                colour-coded by type, in unified genomic order.
+    Both panels share the same visual style and have independently scaled
+    y-axes with smart break intervals.
     """
-    
-    # Base R script
-    script = f'''
-# CGAS Module 13: Nucleotide Diversity Visualization
-# Generated automatically
+
+    genes_basename    = os.path.basename(genes_file)
+    noncoding_basename = os.path.basename(noncoding_file)
+
+    script = f"""
+# =============================================================================
+# CGAS Module 13 – Nucleotide Diversity Visualization
+# Auto-generated by cgas_module13.py
+# =============================================================================
 
 suppressPackageStartupMessages({{
   library(ggplot2)
@@ -1203,153 +1220,171 @@ cat("\\n========================================\\n")
 cat("CGAS MODULE 13: DIVERSITY VISUALIZATION\\n")
 cat("========================================\\n\\n")
 
-# Read data
-cat("Reading nucleotide diversity data...\\n")
-df_A <- read_delim("{os.path.basename(genes_file)}", delim = "\\t", col_names = TRUE, show_col_types = FALSE)
-df_B <- read_delim("{os.path.basename(noncoding_file)}", delim = "\\t", col_names = TRUE, show_col_types = FALSE)
+# ---------------------------------------------------------------------------
+# Read data  (order in file = genomic order, must be preserved)
+# ---------------------------------------------------------------------------
+df_A <- read_delim("{genes_basename}",    delim = "\\t", col_types = cols(.default = "c"))
+df_B <- read_delim("{noncoding_basename}", delim = "\\t", col_types = cols(.default = "c"))
 
-cat(paste("  ✓ Loaded genes:", nrow(df_A), "regions\\n"))
-cat(paste("  ✓ Loaded non-coding:", nrow(df_B), "regions\\n\\n"))
+df_A$Value <- as.numeric(df_A$Value)
+df_B$Value <- as.numeric(df_B$Value)
 
-# Smart y-axis interval function
-# Determines appropriate interval based on max value
-# Each panel calculates independently since genes and non-coding have different ranges
-get_y_axis_breaks <- function(max_val) {{
-  if (max_val <= 0.04) {{
-    interval <- 0.01  # 0.00, 0.01, 0.02, 0.03, 0.04
-  }} else if (max_val <= 0.12) {{
-    interval <- 0.02  # 0.00, 0.02, 0.04, 0.06, 0.08, 0.10, 0.12
-  }} else if (max_val <= 0.3) {{
-    interval <- 0.05  # 0.00, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30
-  }} else if (max_val <= 0.6) {{
-    interval <- 0.1   # 0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6
-  }} else if (max_val <= 1.2) {{
-    interval <- 0.2   # 0.0, 0.2, 0.4, 0.6, 0.8, 1.0, 1.2
-  }} else if (max_val <= 2.0) {{
-    interval <- 0.4   # 0.0, 0.4, 0.8, 1.2, 1.6, 2.0
-  }} else {{
-    interval <- 0.5   # 0.0, 0.5, 1.0, 1.5, 2.0, 2.5, ...
-  }}
-  max_break <- ceiling(max_val / interval) * interval
-  return(list(breaks = seq(0, max_break, by = interval), interval = interval))
+cat(paste("  Loaded genes      :", nrow(df_A), "regions\\n"))
+cat(paste("  Loaded non-coding :", nrow(df_B), "regions\\n\\n"))
+
+# ---------------------------------------------------------------------------
+# Colour-code Panel B: introns = orange, IGS = blue
+# An "intron" row contains the word " intron" in its Region name.
+# ---------------------------------------------------------------------------
+df_B$RegionType <- ifelse(grepl("intron", df_B$Region, ignore.case = TRUE),
+                          "Intron", "IGS")
+
+col_igs    <- "#2166ac"   # blue
+col_intron <- "#d6604d"   # orange-red
+
+# ---------------------------------------------------------------------------
+# Smart y-axis break helper
+# ---------------------------------------------------------------------------
+get_breaks <- function(max_val) {{
+  interval <- dplyr::case_when(
+    max_val <= 0.04 ~ 0.01,
+    max_val <= 0.12 ~ 0.02,
+    max_val <= 0.30 ~ 0.05,
+    max_val <= 0.60 ~ 0.10,
+    max_val <= 1.20 ~ 0.20,
+    max_val <= 2.00 ~ 0.40,
+    TRUE            ~ 0.50
+  )
+  top <- ceiling(max_val / interval) * interval
+  list(breaks = seq(0, top, by = interval), interval = interval)
 }}
 
-# Calculate optimal y-axis breaks for both panels
-y_axis_A <- get_y_axis_breaks(max(df_A$Value, na.rm = TRUE))
-y_axis_B <- get_y_axis_breaks(max(df_B$Value, na.rm = TRUE))
+ya_A <- get_breaks(max(df_A$Value, na.rm = TRUE))
+ya_B <- get_breaks(max(df_B$Value, na.rm = TRUE))
 
-cat(sprintf("Y-axis intervals:\\n"))
-cat(sprintf("  Panel A: max=%.3f, using %.1f intervals\\n", 
-            max(df_A$Value, na.rm = TRUE), y_axis_A$interval))
-cat(sprintf("  Panel B: max=%.3f, using %.1f intervals\\n\\n", 
-            max(df_B$Value, na.rm = TRUE), y_axis_B$interval))
+cat(sprintf("  Panel A y-interval: %.3f  (max pi = %.4f)\\n",
+            ya_A$interval, max(df_A$Value, na.rm = TRUE)))
+cat(sprintf("  Panel B y-interval: %.3f  (max pi = %.4f)\\n\\n",
+            ya_B$interval, max(df_B$Value, na.rm = TRUE)))
 
-# Create figures directory
-if (!dir.exists("Figures")) {{
-  dir.create("Figures")
-}}
+# Dynamic figure width: ~0.28 inch per label, minimum 14 inches
+fig_w_A <- max(14, nrow(df_A) * 0.28)
+fig_w_B <- max(14, nrow(df_B) * 0.22)
+fig_w   <- max(fig_w_A, fig_w_B)
 
-# ============================================================================
-# PANEL A: GENES
-# ============================================================================
+if (!dir.exists("Figures")) dir.create("Figures")
 
-cat("Generating Panel A: Genes...\\n")
+# =============================================================================
+# PANEL A – GENES
+# =============================================================================
+cat("Building Panel A: Genes...\\n")
 
-plot_A <- ggplot(df_A, aes(x = factor(Region, levels = Region), y = Value, group = 1)) +
-  geom_line(color = "#2c7fb8", size = 0.5) +
-  geom_point(size = 1.5, color = "#2c7fb8", fill = "white",
-             shape = 21, stroke = 0.5) +
-  theme_minimal(base_size = 10) +
-  labs(title = "A: Genes", x = NULL, y = "Nucleotide diversity (π)") +
-  theme(
-    axis.text.x = element_text(
-      angle = 90, vjust = 0.5, hjust = 1,
-      size = 9, face = "italic",
-      margin = margin(t = 2, b = 20)
-    ),
-    axis.text.y = element_text(size = 9, color = "black"),
-    axis.title.y = element_text(size = 10, margin = margin(r = 5)),
-    axis.ticks.y = element_line(color = "black"),   
-    plot.title = element_text(
-      size = 11, face = "bold", hjust = 0,
-      margin = margin(b = 10)
-    ),
-    panel.grid.major = element_line(color = "grey90", size = 0.2),
-    panel.grid.minor = element_blank(),
-    plot.margin = margin(t = 10, r = 10, b = 50, l = 10)
-  ) +
+plot_A <- ggplot(df_A,
+                 aes(x = factor(Region, levels = Region), y = Value, group = 1)) +
+  geom_line(colour = col_igs, linewidth = 0.55) +
+  geom_point(size = 1.8, colour = col_igs, fill = "white", shape = 21, stroke = 0.6) +
   scale_y_continuous(
-  limits = c(0, max(df_A$Value, na.rm = TRUE) * 1.1),
-  labels = scales::label_number(accuracy = 0.001),
-  expand = expansion(mult = c(0.05, 0.05))
-)
-
-
-# ============================================================================
-# PANEL B: INTERGENIC SPACERS AND INTRONS
-# ============================================================================
-
-cat("Generating Panel B: Non-coding regions...\\n")
-
-plot_B <- ggplot(df_B, aes(x = factor(Region, levels = Region), y = Value, group = 1)) +
-  geom_line(color = "#2c7fb8", size = 0.5) +
-  geom_point(size = 1.5, color = "#2c7fb8", fill = "white", shape = 21, stroke = 0.5) +
-  theme_minimal(base_size = 10) +
-  labs(title = "B: Intergenic spacers and introns", x = NULL, y = "Nucleotide diversity (π)") +
-  theme(
-    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1,
-                               size = 9, face = "italic",
-                               margin = margin(t = 2, b = 20)),
-    axis.text.y = element_text(size = 9, color = "black"),
-    axis.title.y = element_text(size = 10, margin = margin(r = 5)),
-    plot.title = element_text(size = 11, face = "bold", hjust = 0, 
-                              margin = margin(b = 10)),
-    panel.grid.major = element_line(color = "grey90", size = 0.2),
-    panel.grid.minor = element_blank(),
-    plot.margin = margin(t = 10, r = 10, b = 50, l = 10)
+    breaks = ya_A$breaks,
+    limits = c(0, max(ya_A$breaks) * 1.05),
+    labels = number_format(accuracy = ya_A$interval),
+    expand = expansion(mult = c(0, 0.04))
   ) +
-  scale_y_continuous(breaks = y_axis_B$breaks,
-                     limits = c(0, max(df_B$Value, na.rm = TRUE) * 1.1),
-                     labels = scales::number_format(accuracy = y_axis_B$interval, decimal.mark = "."),
-                     expand = expansion(mult = c(0.05, 0.05))) +
+  labs(title = "A  Genes",
+       x = NULL,
+       y = expression(paste("Nucleotide diversity (", pi, ")"))) +
+  theme_classic(base_size = 10) +
+  theme(
+    axis.text.x  = element_text(angle = 90, vjust = 0.5, hjust = 1,
+                                size = 8, face = "italic"),
+    axis.text.y  = element_text(size = 9),
+    axis.title.y = element_text(size = 10, margin = margin(r = 6)),
+    axis.line    = element_line(colour = "black", linewidth = 0.4),
+    axis.ticks   = element_line(colour = "black", linewidth = 0.4),
+    panel.grid.major.y = element_line(colour = "grey88", linewidth = 0.25),
+    panel.grid.minor   = element_blank(),
+    plot.title   = element_text(size = 11, face = "bold", hjust = 0,
+                                margin = margin(b = 6)),
+    plot.margin  = margin(t = 8, r = 12, b = 55, l = 8)
+  ) +
   coord_cartesian(clip = "off")
 
-# ============================================================================
-# COMBINE PANELS AND SAVE
-# ============================================================================
+# =============================================================================
+# PANEL B – INTRONS + INTERGENIC SPACERS  (colour-coded, genomic order)
+# =============================================================================
+cat("Building Panel B: Non-coding regions (introns + IGS)...\\n")
 
-cat("Combining panels and saving...\\n")
+plot_B <- ggplot(df_B,
+                 aes(x = factor(Region, levels = Region), y = Value, group = 1,
+                     colour = RegionType, fill = RegionType)) +
+  geom_line(colour = "grey60", linewidth = 0.45) +
+  geom_point(size = 1.8, shape = 21, stroke = 0.6) +
+  scale_colour_manual(values = c("IGS" = col_igs, "Intron" = col_intron),
+                      name = NULL) +
+  scale_fill_manual(  values = c("IGS" = col_igs, "Intron" = col_intron),
+                      name = NULL) +
+  scale_y_continuous(
+    breaks = ya_B$breaks,
+    limits = c(0, max(ya_B$breaks) * 1.05),
+    labels = number_format(accuracy = ya_B$interval),
+    expand = expansion(mult = c(0, 0.04))
+  ) +
+  labs(title = "B  Intergenic spacers and introns",
+       x = NULL,
+       y = expression(paste("Nucleotide diversity (", pi, ")"))) +
+  theme_classic(base_size = 10) +
+  theme(
+    axis.text.x  = element_text(angle = 90, vjust = 0.5, hjust = 1,
+                                size = 8, face = "italic"),
+    axis.text.y  = element_text(size = 9),
+    axis.title.y = element_text(size = 10, margin = margin(r = 6)),
+    axis.line    = element_line(colour = "black", linewidth = 0.4),
+    axis.ticks   = element_line(colour = "black", linewidth = 0.4),
+    panel.grid.major.y = element_line(colour = "grey88", linewidth = 0.25),
+    panel.grid.minor   = element_blank(),
+    plot.title   = element_text(size = 11, face = "bold", hjust = 0,
+                                margin = margin(b = 6)),
+    legend.position  = "bottom",
+    legend.text      = element_text(size = 9),
+    legend.key.size  = unit(0.45, "cm"),
+    plot.margin  = margin(t = 8, r = 12, b = 55, l = 8)
+  ) +
+  coord_cartesian(clip = "off")
 
-final_plot <- plot_grid(plot_A, plot_B, 
-                        ncol = 1, 
-                        rel_heights = c(1, 1))
+# =============================================================================
+# COMBINE AND SAVE
+# =============================================================================
+cat("Combining panels and saving figures...\\n")
 
-# Save as PDF
+final_plot <- plot_grid(plot_A, plot_B,
+                        ncol        = 1,
+                        rel_heights = c(1, 1),
+                        align       = "v",
+                        axis        = "lr")
+
+fig_h <- 14   # height in inches (sufficient for rotated labels + two panels)
+
 ggsave("Figures/nucleotide_diversity_plot.pdf",
        final_plot,
-       width = 20,
-       height = 10,
-       units = "in",
-       device = cairo_pdf,
-       dpi = 600)
+       width  = fig_w,
+       height = fig_h,
+       units  = "in",
+       device = cairo_pdf)
 
-# Save as PNG
 ggsave("Figures/nucleotide_diversity_plot.png",
        final_plot,
-       width = 20,
-       height = 10,
-       units = "in",
-       dpi = 600,
-       bg = "white")
+       width  = fig_w,
+       height = fig_h,
+       units  = "in",
+       dpi    = 300,
+       bg     = "white")
 
 cat("\\n========================================\\n")
-cat("Visualization completed successfully!\\n")
+cat("Figures saved successfully!\\n")
 cat("========================================\\n")
-cat("\\nOutput files:\\n")
-cat("  - Figures/nucleotide_diversity_plot.pdf\\n")
-cat("  - Figures/nucleotide_diversity_plot.png\\n")
-'''
-    
+cat("  Figures/nucleotide_diversity_plot.pdf\\n")
+cat("  Figures/nucleotide_diversity_plot.png\\n")
+cat(sprintf("  Figure size: %.1f x %.1f inches\\n", fig_w, fig_h))
+"""
     return script
 
 

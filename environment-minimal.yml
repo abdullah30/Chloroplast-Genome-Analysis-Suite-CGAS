@@ -28,12 +28,31 @@ dependencies:
   # Python packages via pip
   - pip:
   - python-docx>=0.8.11
- # R 4.3 + essential packages
-  - r-base=4.3
-  - r-ggplot2
-  - r-ape
-  - r-dplyr
-  - r-tidyr
+ # R base
+  - r-base>=4.0.0
+  
+  # Core visualization packages
+  - r-ggplot2              # Main plotting framework
+  - r-reshape2             # Data reshaping for plotting
+  - r-pheatmap             # Heatmap generation
+  - r-rcolorbrewer         # Color palettes for plots
+  
+  # Data manipulation packages
+  - r-dplyr                # Data manipulation (select, mutate, group_by, summarize)
+  - r-tidyr                # Data tidying (pivot_longer, pivot_wider, separate)
+  - r-zoo                  # Time series and missing value handling (na.locf)
+  - r-readr                # Fast data reading (read_delim, read_csv, read_tsv)
+  
+  # Plot enhancement and combination
+  - r-cowplot              # Combining ggplot plots (plot_grid, draw_plot)
+  - r-scales               # Formatting plot scales and labels
+  - r-gridextra            # Additional grid plotting utilities (grid.arrange)
+  - r-ggrepel              # Smart text label positioning (geom_text_repel)
+  - r-patchwork            # Combining plots with operators (+, /, |)
+  
+  # Module-specific packages
+  - r-seqinr               # Module 8: Sequence analysis and codon usage (RSCU)
+  - r-writexl              # Excel file writing for output tables
 
 # ============================================================================
 # CGAS v1.0.1 - Minimal Environment for Low-RAM Systems

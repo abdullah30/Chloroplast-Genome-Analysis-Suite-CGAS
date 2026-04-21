@@ -111,6 +111,26 @@ pip install -e .
 
 # Verify installation
 cgas --list
+# GetOrganelle requirements
+		#GetOrganelle requires a one-time database setup. You must download and initialize the database for your preferred organelle genome type.
+		#Available databases: embplant_pt, embplant_mt, embplant_nr, fungus_mt, fungus_nr, animal_mt, other_pt
+		#For chloroplast genome assembly, initialize the database using:
+get_organelle_config.py --add embplant_pt #follow getorganelle for any update
+# For module 2 PGA required
+# Deactivate the CGAS conda environment first
+conda deactivate
+
+# Navigate to your home directory
+cd ~
+
+# Clone the PGA repository
+git clone https://github.com/quxiaojian/PGA.git
+
+# Create a permanent alias for easy access
+echo 'alias pga="perl /home/abdullah/PGA/PGA.pl"' >> ~/.bashrc
+> Replace `abdullah` with your username.
+# Apply the changes to your current terminal
+source ~/.bashrc
 ```
 
 **Installs:** Python 3.9, all dependencies, fastp, GetOrganelle, BLAST+, MAFFT, MACSE, IQ-TREE, R with 12 packages

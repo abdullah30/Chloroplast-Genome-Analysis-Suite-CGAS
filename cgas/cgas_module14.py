@@ -68,6 +68,10 @@ import os
 import sys
 import subprocess
 import argparse
+import time
+import signal
+import queue
+import threading
 from pathlib import Path
 from Bio import SeqIO, AlignIO
 from Bio.Seq import Seq
@@ -537,24 +541,46 @@ def check_mafft():
 
 
 def check_macse():
-    """Check if MACSE is available."""
-    try:
-        # Try to run MACSE
-        result = subprocess.run(["java", "-jar", "macse.jar", "-help"], 
-                              stdout=subprocess.PIPE, 
-                              stderr=subprocess.PIPE,
-                              timeout=5)
-        return True
-    except:
-        # Try alternative location
+    """Check if MACSE is available and actually runs.
+
+    The original version returned True whenever 'java' existed in PATH,
+    even if macse.jar was missing — because subprocess.run without
+    check=True doesn't raise on non-zero exit. This version verifies
+    the returncode and that MACSE's help banner is actually produced.
+    """
+    # Candidate 1: java -jar macse.jar -help (in CWD)
+    if os.path.exists("macse.jar") or os.path.exists("macse_v2.jar"):
+        jar = "macse.jar" if os.path.exists("macse.jar") else "macse_v2.jar"
         try:
-            result = subprocess.run(["macse", "-help"], 
-                                  stdout=subprocess.PIPE, 
-                                  stderr=subprocess.PIPE,
-                                  timeout=5)
+            result = subprocess.run(
+                ["java", "-jar", jar, "-help"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=15,
+            )
+            # MACSE prints help to stdout on success; rc can be 0 or 1
+            # depending on version, so check the banner text instead.
+            banner = (result.stdout + result.stderr).decode(errors="ignore").lower()
+            if "macse" in banner and ("alignsequences" in banner or "-prog" in banner):
+                return True
+        except Exception:
+            pass
+
+    # Candidate 2: 'macse' as an executable wrapper in PATH
+    try:
+        result = subprocess.run(
+            ["macse", "-help"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=15,
+        )
+        banner = (result.stdout + result.stderr).decode(errors="ignore").lower()
+        if "macse" in banner and ("alignsequences" in banner or "-prog" in banner):
             return True
-        except:
-            return False
+    except Exception:
+        pass
+
+    return False
 
 
 def find_macse_path():
@@ -585,62 +611,222 @@ def find_macse_path():
     return None
 
 
-def align_sequences_macse(seq_records, output_fasta, output_alignment, macse_path, outgroup_names=None):
+def _load_existing_alignment(aligned_path, min_seqs=2):
+    """Try to load an existing alignment file on disk (used by --resume).
+
+    Returns:
+        (MultipleSeqAlignment, None)  — file exists, parses, and is usable.
+        (None, reason_string)         — file missing, empty, corrupt, ragged,
+                                        or has fewer than `min_seqs` records.
+    """
+    if not os.path.exists(aligned_path):
+        return None, "not found"
+    try:
+        if os.path.getsize(aligned_path) == 0:
+            return None, "empty file"
+    except OSError:
+        return None, "stat failed"
+    try:
+        alignment = AlignIO.read(aligned_path, "fasta")
+    except Exception as e:
+        return None, f"parse failed ({type(e).__name__})"
+    if len(alignment) < min_seqs:
+        return None, f"only {len(alignment)} seq(s)"
+    # Must be an actual alignment — all rows same length
+    lengths = {len(rec.seq) for rec in alignment}
+    if len(lengths) != 1:
+        return None, "ragged (not aligned)"
+    return alignment, None
+
+
+def align_sequences_macse(
+    seq_records,
+    output_fasta,
+    output_alignment,
+    macse_path,
+    outgroup_names=None,
+    prompt_interval=600,   # 10 min between skip/continue prompts
+    poll_interval=2,       # how often to poll subprocess + user input
+    java_heap_gb=8,        # JVM max heap; raise for very long genes
+):
     """
     Align protein-coding sequences using MACSE (codon-aware alignment).
     This creates a separate MACSE alignment file in addition to the MAFFT alignment.
-    
+
+    Runs MACSE with NO hard timeout. Every `prompt_interval` seconds the user
+    is asked whether to keep waiting or skip the gene:
+        press Enter  → keep waiting (re-prompt after another prompt_interval)
+        type 's'     → kill MACSE cleanly, return None, move to next gene
+    In non-interactive runs (piped stdin, nohup, cluster jobs) the prompt is
+    disabled and progress is logged instead.
+
     Args:
         seq_records: List of SeqRecord objects
         output_fasta: Path to unaligned FASTA (already created by MAFFT)
         output_alignment: Path to write MACSE aligned FASTA
         macse_path: Path to MACSE jar or executable
         outgroup_names: List of organism names to place at top of alignment
-    
+        prompt_interval: Seconds between skip/continue prompts (default 600)
+        poll_interval: Seconds between subprocess poll checks (default 2)
+        java_heap_gb: JVM max heap in GB for MACSE (default 8)
+
     Returns:
-        MultipleSeqAlignment object or None if alignment fails
+        MultipleSeqAlignment object, or None if alignment fails / is skipped.
     """
     # Skip if less than 2 sequences
     if len(seq_records) < 2:
         return None
-    
+
     # CRITICAL: Write unaligned sequences FIRST
     SeqIO.write(seq_records, output_fasta, "fasta")
-    
+
     # Prepare MACSE output files
     macse_nt_output = output_alignment.replace(".fasta", "_NT.fasta")
     macse_aa_output = output_alignment.replace(".fasta", "_AA.fasta")
-    
+
+    # Build MACSE command with JVM heap + tighter frameshift/stop penalties
+    if macse_path.endswith('.jar'):
+        cmd = [
+            "java",
+            f"-Xmx{java_heap_gb}g",
+            "-Xms2g",
+            "-jar", macse_path,
+            "-prog", "alignSequences",
+            "-seq", output_fasta,
+            "-out_NT", macse_nt_output,
+            "-out_AA", macse_aa_output,
+            "-fs", "30",     # frameshift penalty — higher = fewer paths explored
+            "-stop", "30",   # internal-stop penalty
+        ]
+    else:
+        cmd = [
+            macse_path,
+            "-prog", "alignSequences",
+            "-seq", output_fasta,
+            "-out_NT", macse_nt_output,
+            "-out_AA", macse_aa_output,
+            "-fs", "30",
+            "-stop", "30",
+        ]
+
+    # Launch in a new process group so we can kill JVM + children on skip
+    popen_kwargs = dict(stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if os.name == "posix":
+        popen_kwargs["start_new_session"] = True
+
+    proc = None
+    user_reply_q = queue.Queue()
+    input_thread = None
+    prompted_count = 0
+    gene_label = os.path.basename(output_fasta).replace(".fasta", "")
+
+    def _kill_process_tree(p):
+        """Kill the whole MACSE/JVM process group; never leak a zombie."""
+        if p is None or p.poll() is not None:
+            return
+        try:
+            if os.name == "posix":
+                os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+            else:
+                p.kill()
+        except Exception:
+            try:
+                p.kill()
+            except Exception:
+                pass
+        try:
+            p.wait(timeout=10)
+        except Exception:
+            pass
+
+    def _ask_user_async(q, label, elapsed_min):
+        """Blocking input() in a daemon thread — answer pushed to queue."""
+        try:
+            print(
+                f"\n  ⏸  [{label}] MACSE has been running for {elapsed_min:.0f} min.\n"
+                f"     Long plastid genes (ycf1, ycf2, rpoC2, accD) can legitimately\n"
+                f"     take 30–90 min. Type 's' + Enter to SKIP this gene,\n"
+                f"     or press Enter to keep waiting: ",
+                end="", flush=True,
+            )
+            ans = input().strip().lower()
+            q.put(ans)
+        except (EOFError, KeyboardInterrupt):
+            q.put(None)
+
     try:
-        # Run MACSE
-        if macse_path.endswith('.jar'):
-            cmd = [
-                "java", "-jar", macse_path,
-                "-prog", "alignSequences",
-                "-seq", output_fasta,
-                "-out_NT", macse_nt_output,
-                "-out_AA", macse_aa_output
-            ]
-        else:
-            cmd = [
-                macse_path,
-                "-prog", "alignSequences",
-                "-seq", output_fasta,
-                "-out_NT", macse_nt_output,
-                "-out_AA", macse_aa_output
-            ]
-        
-        subprocess.run(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=True,
-            timeout=300  # 5 minute timeout
-        )
-        
+        proc = subprocess.Popen(cmd, **popen_kwargs)
+        start_time = time.time()
+
+        # --- Main poll loop ---------------------------------------------------
+        while True:
+            # 1) Has MACSE finished?
+            rc = proc.poll()
+            if rc is not None:
+                stdout, stderr = proc.communicate()
+                if rc != 0:
+                    err = (stderr.decode(errors="ignore") if stderr else "").strip()
+                    print(f" (MACSE error rc={rc}: {err[:150]})", end="")
+                    return None
+                break  # success
+
+            elapsed = time.time() - start_time
+
+            # 2) Time to prompt? Threshold advances every prompt_interval seconds.
+            next_threshold = (prompted_count + 1) * prompt_interval
+            if elapsed >= next_threshold and input_thread is None:
+                if sys.stdin is not None and sys.stdin.isatty():
+                    input_thread = threading.Thread(
+                        target=_ask_user_async,
+                        args=(user_reply_q, gene_label, elapsed / 60.0),
+                        daemon=True,
+                    )
+                    input_thread.start()
+                else:
+                    # Non-interactive: can't prompt — just log and keep going.
+                    print(
+                        f"\n  [{gene_label}] still running after "
+                        f"{elapsed/60:.0f} min (non-interactive: skip prompt disabled)",
+                        flush=True,
+                    )
+                    prompted_count += 1
+
+            # 3) Did the user answer a pending prompt?
+            if input_thread is not None:
+                try:
+                    ans = user_reply_q.get_nowait()
+                    input_thread = None
+                    prompted_count += 1
+                    if ans == "s":
+                        print(
+                            f"\n  → Skipping {gene_label} at user request "
+                            f"({elapsed/60:.0f} min elapsed)",
+                            flush=True,
+                        )
+                        _kill_process_tree(proc)
+                        # Clean partial outputs
+                        for f in (macse_aa_output, macse_nt_output):
+                            if os.path.exists(f):
+                                try:
+                                    os.remove(f)
+                                except OSError:
+                                    pass
+                        return None
+                    else:
+                        print(
+                            f"  → Continuing {gene_label} "
+                            f"(next check in {prompt_interval//60} min)",
+                            flush=True,
+                        )
+                except queue.Empty:
+                    pass
+
+            time.sleep(poll_interval)
+
+        # --- Parse MACSE output ----------------------------------------------
         # Read MACSE nucleotide alignment
         alignment = AlignIO.read(macse_nt_output, "fasta")
-        
+
         # MACSE uses ! for frameshifts and * for stops - convert to gaps for compatibility
         cleaned_records = []
         for record in alignment:
@@ -651,35 +837,31 @@ def align_sequences_macse(seq_records, output_fasta, output_alignment, macse_pat
                 description=""  # Empty description for Geneious compatibility
             )
             cleaned_records.append(cleaned_record)
-        
+
         alignment = MultipleSeqAlignment(cleaned_records)
-        
+
         # Reorder alignment if outgroups specified
         if outgroup_names:
             alignment = reorder_alignment_with_outgroups(alignment, outgroup_names)
-        
+
         # Write cleaned alignment
         AlignIO.write(alignment, output_alignment, "fasta")
-        
+
         # Clean up intermediate files
         if os.path.exists(macse_aa_output):
             os.remove(macse_aa_output)
         if os.path.exists(macse_nt_output):
             os.remove(macse_nt_output)
-        
+
         return alignment
-    
-    except subprocess.CalledProcessError as e:
-        # MACSE command failed - show the error
-        error_msg = e.stderr.decode() if e.stderr else str(e)
-        print(f" (MACSE error: {error_msg[:100]})", end="")
-        return None
-    except subprocess.TimeoutExpired as e:
-        print(f" (MACSE timeout)", end="")
-        return None
+
     except Exception as e:
-        print(f" (Error: {str(e)[:100]})", end="")
+        print(f" (MACSE error: {str(e)[:150]})", end="")
         return None
+
+    finally:
+        # Safety net — make sure JVM never leaks
+        _kill_process_tree(proc)
 
 
 def align_sequences(seq_records, output_fasta, output_alignment, outgroup_names=None):
@@ -1171,6 +1353,14 @@ Examples:
                        type=str,
                        default='AUTO',
                        help='Number of threads for IQ-TREE (default: AUTO for automatic detection)')
+
+    parser.add_argument('--resume',
+                       action='store_true',
+                       default=False,
+                       help='Resume from a previous run: skip any gene/intron/IGS that already has '
+                            'a valid *_aligned.fasta on disk. Re-aligns only missing or invalid ones. '
+                            'NOTE: do not combine with changed --outgroups or a different input set, '
+                            'since existing alignments are trusted as-is.')
     
     # Parse arguments
     args = parser.parse_args()
@@ -1185,10 +1375,14 @@ Examples:
     complete_only = args.complete_only
     run_iqtree = args.iqtree
     threads = args.threads
+    resume_mode = args.resume
     
     print("=" * 80)
     print("CGAS Module 14: Phylogenetic Matrix Builder")
     print("=" * 80)
+
+    if resume_mode:
+        print("\n↻ RESUME MODE: existing *_aligned.fasta files will be reused where valid")
     
     # Show input directory
     if input_dir == '.':
@@ -1361,6 +1555,17 @@ Examples:
             output_fasta = os.path.join(genes_dir, f"{gene_name}.fasta")
             output_alignment = os.path.join(genes_dir, f"{gene_name}_aligned.fasta")
             
+            # --resume: reuse existing alignment if it is valid
+            if resume_mode:
+                existing, reason = _load_existing_alignment(output_alignment, min_seqs=2)
+                if existing is not None:
+                    gene_alignments[gene_name] = existing
+                    gene_order.append(gene_name)
+                    print(f"↻ (resumed: {len(existing)} seqs × {existing.get_alignment_length()} bp)")
+                    continue
+                elif reason != "not found":
+                    print(f"(existing invalid: {reason}, re-aligning)", end=" ")
+
             if use_macse:
                 alignment = align_sequences_macse(seq_records, output_fasta, output_alignment, macse_path, outgroup_names)
             else:
@@ -1385,6 +1590,17 @@ Examples:
             output_fasta = os.path.join(introns_dir, f"{intron_name}.fasta")
             output_alignment = os.path.join(introns_dir, f"{intron_name}_aligned.fasta")
             
+            # --resume: reuse existing alignment if it is valid
+            if resume_mode:
+                existing, reason = _load_existing_alignment(output_alignment, min_seqs=2)
+                if existing is not None:
+                    intron_alignments[intron_name] = existing
+                    intron_order.append(intron_name)
+                    print(f"↻ (resumed: {len(existing)} seqs × {existing.get_alignment_length()} bp)")
+                    continue
+                elif reason != "not found":
+                    print(f"(existing invalid: {reason}, re-aligning)", end=" ")
+
             alignment = align_sequences(seq_records, output_fasta, output_alignment, outgroup_names)
             
             if alignment:
@@ -1406,6 +1622,17 @@ Examples:
             output_fasta = os.path.join(intergenic_dir, f"{spacer_name}.fasta")
             output_alignment = os.path.join(intergenic_dir, f"{spacer_name}_aligned.fasta")
             
+            # --resume: reuse existing alignment if it is valid
+            if resume_mode:
+                existing, reason = _load_existing_alignment(output_alignment, min_seqs=2)
+                if existing is not None:
+                    intergenic_alignments[spacer_name] = existing
+                    intergenic_order.append(spacer_name)
+                    print(f"↻ (resumed: {len(existing)} seqs × {existing.get_alignment_length()} bp)")
+                    continue
+                elif reason != "not found":
+                    print(f"(existing invalid: {reason}, re-aligning)", end=" ")
+
             alignment = align_sequences(seq_records, output_fasta, output_alignment, outgroup_names)
             
             if alignment:

@@ -603,34 +603,34 @@ Contributions are welcome! Please:
 
 If you use CGAS in your research, please cite:
 
-**Preferred Citation (bioRxiv):**
+**Preferred Citation (iMetaOmics):**
 ```
-Abdullah, Rushan Yan, Xiaoxuan Tian (2025). CGAS (Chloroplast Genome Analysis Suite): 
+Abdullah, Rushan Yan, Xiaoxuan Tian (2026). CGAS (Chloroplast Genome Analysis Suite): 
 An Automated Python Pipeline for Comprehensive Comparative Chloroplast Genomics. 
-bioRxiv. doi: https://doi.org/10.64898/2025.12.21.695765
+iMetaOmics. doi: https://doi.org/10.1002/imo2.70093
 ```
 
 **Alternative Citation Formats:**
 
 *APA Style:*
 ```
-Abdullah, Yan, R., & Tian, X. (2025). CGAS (Chloroplast Genome Analysis Suite): 
+Abdullah, Yan, R., & Tian, X. (2026). CGAS (Chloroplast Genome Analysis Suite): 
 An Automated Python Pipeline for Comprehensive Comparative Chloroplast Genomics. 
-bioRxiv. https://doi.org/10.64898/2025.12.21.695765
+iMetaOmics. https://doi.org/10.1002/imo2.70093
 ```
 
 *MLA Style:*
 ```
 Abdullah, Rushan Yan, and Xiaoxuan Tian. "CGAS (Chloroplast Genome Analysis Suite): 
 An Automated Python Pipeline for Comprehensive Comparative Chloroplast Genomics." 
-bioRxiv (2025). https://doi.org/10.64898/2025.12.21.695765
+iMetaOmics (2026). https://doi.org/10.1002/imo2.70093
 ```
 
 *Chicago Style:*
 ```
-Abdullah, Rushan Yan, and Xiaoxuan Tian. 2025. "CGAS (Chloroplast Genome Analysis Suite): 
+Abdullah, Rushan Yan, and Xiaoxuan Tian. 2026. "CGAS (Chloroplast Genome Analysis Suite): 
 An Automated Python Pipeline for Comprehensive Comparative Chloroplast Genomics." 
-bioRxiv. https://doi.org/10.64898/2025.12.21.695765
+iMetaOmics. https://doi.org/10.1002/imo2.70093
 ```
 
 **BibTeX:**
@@ -638,10 +638,10 @@ bioRxiv. https://doi.org/10.64898/2025.12.21.695765
 @article{abdullah2025cgas,
   title={CGAS (Chloroplast Genome Analysis Suite): An Automated Python Pipeline for Comprehensive Comparative Chloroplast Genomics},
   author={Abdullah and Yan, Rushan and Tian, Xiaoxuan},
-  journal={bioRxiv},
-  year={2025},
-  doi={10.64898/2025.12.21.695765},
-  url={https://doi.org/10.64898/2025.12.21.695765}
+  journal={iMetaOmics},
+  year={2026},
+  doi={https://doi.org/10.1002/imo2.70093},
+  url={https://doi.org/10.1002/imo2.70093}
 }
 ```
 

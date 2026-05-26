@@ -19,6 +19,14 @@ CORRECTIONS IN THIS VERSION (per module13_correction_protocol):
    and IRb copies of an intron collapse to a single entry.
 7. Genomic coordinates are used only as secondary information; biological
    identity (gene name, spacer pair, intron gene) is the primary key.
+8. Trans-spliced genes (rps12) are now handled correctly:
+   a. Intergenic spacer boundaries use the NEAREST EXON PART end/start
+      instead of the whole-feature location.end/.start, which for
+      trans-spliced genes returns coordinates from a distant genomic
+      region.
+   b. Orientation (RC) decisions for spacers and introns use the strand
+      of the individual exon PART flanking the region, not the ambiguous
+      whole-gene CompoundLocation.strand.
 
 PREVIOUS IMPROVEMENTS (v1.0):
 - Nucleotide diversity values are ROUNDED to 1 decimal place (0.0, 0.1, 0.2, 0.3, etc.)
@@ -40,7 +48,7 @@ Key Features:
    - Panel B: Non-coding regions (introns + intergenic spacers) plot
 
 Author: Abdullah
-Version: 1.0.1 (Module 13 - IR-corrected)
+Version: 1.0.2 (Module 13 - IR-corrected + trans-splicing fix)
 Date: March 2026
 
 Dependencies:
@@ -232,6 +240,57 @@ def get_organism_label(record):
     return record.id
 
 
+def is_trans_spliced(feature, threshold=10000):
+    """
+    Return True if a feature's exon parts span more than `threshold` bp,
+    indicating trans-splicing (e.g. rps12 with exon 1 in LSC and exons 2-3
+    in the IR).
+    """
+    if not hasattr(feature.location, 'parts') or len(feature.location.parts) < 2:
+        return False
+    parts = list(feature.location.parts)
+    parts.sort(key=lambda x: int(x.start))
+    span = int(parts[-1].end) - int(parts[0].start)
+    return span > threshold
+
+
+def get_exon_parts_list(all_features):
+    """
+    Flatten a sorted list of features into individual exon parts.
+
+    For normal (cis-spliced or single-exon) genes, the feature produces one
+    entry per exon part.  For trans-spliced genes (e.g. rps12) each exon
+    part appears separately, carrying the strand of THAT specific part
+    rather than the ambiguous whole-gene strand.
+
+    Returns
+    -------
+    List of (genomic_start, genomic_end, normalised_gene_name, part_strand)
+    sorted by genomic_start.
+    """
+    parts_list = []
+    for feature in all_features:
+        raw_name = (feature.qualifiers.get("gene",    [None])[0] or
+                    feature.qualifiers.get("product", [None])[0])
+        if not raw_name:
+            continue
+        norm = normalize_gene_name(raw_name)
+
+        if hasattr(feature.location, 'parts') and len(feature.location.parts) > 1:
+            for part in feature.location.parts:
+                parts_list.append(
+                    (int(part.start), int(part.end), norm, part.strand)
+                )
+        else:
+            parts_list.append(
+                (int(feature.location.start), int(feature.location.end),
+                 norm, feature.location.strand)
+            )
+
+    parts_list.sort(key=lambda x: x[0])
+    return parts_list
+
+
 def extract_features_from_genbank(genbank_files, output_dir):
     """
     Extract genes, introns, and intergenic spacers from multiple GenBank files.
@@ -370,7 +429,13 @@ def extract_features_from_genbank(genbank_files, output_dir):
                     )
 
                 # ----------------------------------------------------------
-                # INTRON sequences — derived from the same first copy
+                # INTRON sequences — derived from the same first copy.
+                # For trans-spliced genes the >10 kb inter-exon gaps are
+                # not real introns and are skipped; only cis-spliced
+                # introns (< 10 kb) are retained.
+                # Strand is taken from the flanking exon PARTS, not from
+                # the whole-gene location.strand (which is unreliable for
+                # trans-spliced genes with mixed-strand parts).
                 # ----------------------------------------------------------
                 exon_parts = (
                     list(first.location.parts)
@@ -383,15 +448,7 @@ def extract_features_from_genbank(genbank_files, output_dir):
                 if len(exon_parts) < 2:
                     continue   # no introns in this gene
 
-                gene_span = int(exon_parts[-1].end) - int(exon_parts[0].start)
-
-                # Skip trans-spliced genes (except rps12 handled below)
-                if gene_name.lower() != "rps12" and gene_span > 10000:
-                    print(f"    Skipping trans-spliced {gene_name} "
-                          f"(span {gene_span} bp)")
-                    continue
-
-                # Collect valid introns
+                # Collect valid (cis-spliced) introns
                 valid_introns = []
                 for i in range(len(exon_parts) - 1):
                     i_start = int(exon_parts[i].end)
@@ -403,9 +460,12 @@ def extract_features_from_genbank(genbank_files, output_dir):
                         print(f"    Skipping trans-spliced intron in "
                               f"{gene_name} ({i_len} bp)")
                         continue
-                    # Raw genomic slice, then orient to match gene strand
+                    # Raw genomic slice, then orient to match the strand
+                    # of the flanking exon part (not the whole-gene strand,
+                    # which is ambiguous for trans-spliced genes).
                     i_seq = sequence[i_start:i_end]
-                    if strand == -1:
+                    part_strand = exon_parts[i].strand
+                    if part_strand == -1:
                         i_seq = i_seq.reverse_complement()
                     valid_introns.append((i_start, i_end, i_seq, i_len))
 
@@ -437,10 +497,47 @@ def extract_features_from_genbank(genbank_files, output_dir):
             # sorting the two flanking gene names so IRa and IRb yield the
             # same key.  Reverse-complement if both flanking genes are on
             # the minus strand (= IRb context).
+            #
+            # For trans-spliced genes (e.g. rps12), CompoundLocation.end
+            # and .strand span disjoint genomic regions.  We use the
+            # nearest exon-part boundary and its strand instead.
+            #
+            # tRNA/rRNA genes that contain a CDS within their intron
+            # (e.g. trnK-UUU contains matK) are excluded from spacer
+            # boundaries so the embedded CDS serves as the boundary
+            # gene instead.  The host gene's intron is still extracted
+            # separately by the intron processing code above.
             # ----------------------------------------------------------------
-            for i in range(len(all_features) - 1):
-                cur  = all_features[i]
-                nxt  = all_features[i + 1]
+
+            # --- Identify non-CDS features with a CDS nested inside ---
+            cds_starts = set()
+            for f in all_features:
+                if f.type == "CDS":
+                    cds_starts.add(int(f.location.start))
+
+            skip_from_spacers = set()
+            for f in all_features:
+                if f.type in ("tRNA", "rRNA"):
+                    parts = (list(f.location.parts)
+                             if hasattr(f.location, 'parts')
+                             else [f.location])
+                    if len(parts) < 2:
+                        continue
+                    parts_sorted = sorted(parts, key=lambda p: int(p.start))
+                    for pi in range(len(parts_sorted) - 1):
+                        intron_s = int(parts_sorted[pi].end)
+                        intron_e = int(parts_sorted[pi + 1].start)
+                        for cs in cds_starts:
+                            if intron_s < cs < intron_e:
+                                skip_from_spacers.add(id(f))
+                                break
+
+            spacer_features = [f for f in all_features
+                               if id(f) not in skip_from_spacers]
+
+            for i in range(len(spacer_features) - 1):
+                cur  = spacer_features[i]
+                nxt  = spacer_features[i + 1]
 
                 g1_raw = (cur.qualifiers.get("gene",    [None])[0] or
                           cur.qualifiers.get("product", [None])[0])
@@ -455,8 +552,38 @@ def extract_features_from_genbank(genbank_files, output_dir):
                 # Canonical spacer name: alphabetical order of the two genes
                 spacer_name = "-".join(sorted([g1, g2]))
 
-                sp_start = int(cur.location.end)
-                sp_end   = int(nxt.location.start)
+                # --- effective end of cur (sp_start) ---------------------
+                # For trans-spliced genes, location.end may be in a
+                # different genomic region.  Use the end of the exon part
+                # nearest to (and before) the next feature's start.
+                nxt_global = int(nxt.location.start)
+                if (hasattr(cur.location, 'parts')
+                        and len(cur.location.parts) > 1):
+                    candidates = [int(p.end) for p in cur.location.parts
+                                  if int(p.end) <= nxt_global]
+                    sp_start = max(candidates) if candidates else int(cur.location.end)
+                    # strand of the nearest part
+                    cur_strand = min(
+                        cur.location.parts,
+                        key=lambda p: abs(int(p.end) - sp_start)
+                    ).strand
+                else:
+                    sp_start = int(cur.location.end)
+                    cur_strand = cur.location.strand
+
+                # --- effective start of nxt (sp_end) ---------------------
+                if (hasattr(nxt.location, 'parts')
+                        and len(nxt.location.parts) > 1):
+                    candidates = [int(p.start) for p in nxt.location.parts
+                                  if int(p.start) >= sp_start]
+                    sp_end = min(candidates) if candidates else int(nxt.location.start)
+                    nxt_strand = min(
+                        nxt.location.parts,
+                        key=lambda p: abs(int(p.start) - sp_end)
+                    ).strand
+                else:
+                    sp_end = int(nxt.location.start)
+                    nxt_strand = nxt.location.strand
 
                 if sp_end <= sp_start:
                     continue          # overlapping features — no spacer
@@ -471,9 +598,9 @@ def extract_features_from_genbank(genbank_files, output_dir):
 
                 sp_seq = sequence[sp_start:sp_end]
 
-                # Orientation: reverse-complement when BOTH flanking genes
-                # are on the minus strand (IRb context).
-                if cur.location.strand == -1 and nxt.location.strand == -1:
+                # Orientation: reverse-complement when BOTH flanking
+                # parts are on the minus strand (= IRb context).
+                if cur_strand == -1 and nxt_strand == -1:
                     sp_seq = sp_seq.reverse_complement()
 
                 seen_spacers.add(spacer_key)
@@ -532,7 +659,35 @@ def get_feature_order(genbank_file):
                 gene_positions[norm] = int(feature.location.start)
                 deduped.append((norm, feature))
 
-        # Build unified order: gene -> its introns -> spacer to next gene -> ...
+        # ---- Identify tRNA/rRNA with a CDS nested in their intron ----
+        # (e.g. trnK-UUU contains matK).  These are excluded from spacer
+        # boundaries so the embedded CDS is the boundary gene instead.
+        cds_starts = set()
+        for _, feat in deduped:
+            if feat.type == "CDS":
+                cds_starts.add(int(feat.location.start))
+
+        skip_genes = set()     # gene names to skip for spacer purposes
+        for gname, feat in deduped:
+            if feat.type in ("tRNA", "rRNA"):
+                parts = (list(feat.location.parts)
+                         if hasattr(feat.location, 'parts')
+                         else [feat.location])
+                if len(parts) < 2:
+                    continue
+                parts_s = sorted(parts, key=lambda p: int(p.start))
+                for pi in range(len(parts_s) - 1):
+                    i_s = int(parts_s[pi].end)
+                    i_e = int(parts_s[pi + 1].start)
+                    for cs in cds_starts:
+                        if i_s < cs < i_e:
+                            skip_genes.add(gname)
+                            break
+
+        # spacer_deduped: same as deduped but without nested-CDS hosts
+        spacer_deduped = [(n, f) for n, f in deduped if n not in skip_genes]
+
+        # Build unified order: gene -> its introns -> spacer to next gene
         for idx, (gene_name, feature) in enumerate(deduped):
             gene_pos = int(feature.location.start)
             unified_order.append(("Gene", gene_name, gene_pos))
@@ -561,22 +716,44 @@ def get_feature_order(genbank_file):
                         intron_positions[iname] = i_start
                     unified_order.append(("Intron", iname, i_start))
 
-            # Spacer between this gene and the next
-            if idx + 1 < len(deduped):
-                next_name, next_feat = deduped[idx + 1]
+        # ---- Spacers from spacer_deduped (hosts with nested CDS removed) ----
+        for idx in range(len(spacer_deduped) - 1):
+            gene_name, feature   = spacer_deduped[idx]
+            next_name, next_feat = spacer_deduped[idx + 1]
+
+            # --- effective end of current gene's nearest exon ----
+            nxt_global_start = int(next_feat.location.start)
+            if (hasattr(feature.location, 'parts')
+                    and len(feature.location.parts) > 1):
+                candidates = [int(p.end) for p in feature.location.parts
+                              if int(p.end) <= nxt_global_start]
+                sp_start = max(candidates) if candidates else int(feature.location.end)
+            else:
                 sp_start = int(feature.location.end)
-                sp_end   = int(next_feat.location.start)
 
-                if sp_end > sp_start and (sp_end - sp_start) > 10:
-                    directional = f"{gene_name}-{next_name}"
-                    sorted_key  = "-".join(sorted([gene_name, next_name]))
+            # --- effective start of next gene's nearest exon ----
+            if (hasattr(next_feat.location, 'parts')
+                    and len(next_feat.location.parts) > 1):
+                candidates = [int(p.start) for p in next_feat.location.parts
+                              if int(p.start) >= sp_start]
+                sp_end = min(candidates) if candidates else int(next_feat.location.start)
+            else:
+                sp_end = int(next_feat.location.start)
 
-                    if sorted_key not in intergenic_positions:
-                        intergenic_positions[sorted_key] = sp_start
-                    if sorted_key not in canonical_spacer_names:
-                        canonical_spacer_names[sorted_key] = directional
+            if sp_end > sp_start and (sp_end - sp_start) > 10:
+                directional = f"{gene_name}-{next_name}"
+                sorted_key  = "-".join(sorted([gene_name, next_name]))
 
-                    unified_order.append(("Intergenic", sorted_key, sp_start))
+                if sorted_key not in intergenic_positions:
+                    intergenic_positions[sorted_key] = sp_start
+                if sorted_key not in canonical_spacer_names:
+                    canonical_spacer_names[sorted_key] = directional
+
+                unified_order.append(("Intergenic", sorted_key, sp_start))
+
+        # Restore genomic order (gene → intron → spacer → gene → ...)
+        # after building genes+introns and spacers in separate passes.
+        unified_order.sort(key=lambda x: x[2])
 
         break  # Only the first record defines the reference order
 
